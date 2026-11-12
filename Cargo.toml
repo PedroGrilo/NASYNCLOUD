@@ -3,6 +3,7 @@ name = "nasyncloud"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.90"
+license = "MIT"
 description = "Files on demand para NAS com WebDAV (UGREEN UGOS e companhia): monta a NAS como pasta local, descarrega so o que abres e sincroniza as alteracoes."
 
 # The desktop app (tray / menu bar) lives in desktop/. Plain `cargo build` and

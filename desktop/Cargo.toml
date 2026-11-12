@@ -3,6 +3,7 @@ name = "nasyncloud-desktop"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.90"
+license = "MIT"
 description = "NASYNCLOUD na bandeja / barra de menus: o painel e as janelas à volta do serviço nasyncloud."
 publish = false
 

@@ -148,3 +148,7 @@ These documents are in Portuguese:
 - [How it works inside](docs/ARCHITECTURE.md) and [why it's built this way](docs/DECISIONS.md).
 - [What changed in each version](CHANGELOG.md).
 - If you want to contribute, read [CLAUDE.md](CLAUDE.md) first.
+
+## License
+
+NASYNCLOUD is free and open source, under the [MIT License](LICENSE).
