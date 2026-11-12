@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds dist/NASYNCLOUD.app (the menu bar app, desktop/, with the nasyncloud service
-# next to it) and dist/NASYNCLOUD-<version>-macos-<arch>.dmg. macOS only; building
-# needs macFUSE installed (the service links against its libfuse).
+# next to it) and dist/NASYNCLOUD-<version>-macos-<arch>.dmg. macOS only; nothing
+# else to install (the mount uses the NFS client that comes with macOS).
 # The app is ad-hoc signed, not notarized: see packaging/macos/LEIA-ME.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."

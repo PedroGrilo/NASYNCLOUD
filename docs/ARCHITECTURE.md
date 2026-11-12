@@ -7,8 +7,9 @@
                                                  ▼
   nasyncloud mount / ui ──▶ service.rs ──▶ Mounted (unix.rs | win.rs)
                                                  │
-                   Linux/macOS: fuse.rs ◀── vfs/ (árvore, cache, índice redb)
-                   Windows:     Cloud Files API ◀── win.rs (placeholders no NTFS)
+                   Linux:   fuse.rs ◀── vfs/ (árvore, cache, índice redb)
+                   macOS:   mount_nfs ──▶ nfs.rs (NFS em 127.0.0.1) ◀── vfs/
+                   Windows: Cloud Files API ◀── win.rs (placeholders no NTFS)
                                                  │
                                        trait Remote ──▶ webdav.rs ──▶ NAS
 ```
@@ -71,19 +72,30 @@ Tarefas de fundo:
 - `prober`: deteta o regresso da NAS (a cada 10 s quando offline) e a quota (a cada 5 min).
 - `evictor`: LRU por atime até 90% de `cache_max`; ignora fixados, modificados, abertos e em transferência.
 
-### FUSE (`fuse.rs`)
+### FUSE (`fuse.rs`, Linux)
 
-Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`, só no Linux: o macFUSE calcula-o a partir do tamanho). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasyncloud.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar.
+Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasyncloud.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar.
 
-`getattr` e `open` usam `Vfs::getattr_fresh`, que primeiro relê a pasta-mãe se a listagem tiver mais de `dir_ttl`. No Linux isto já acontecia pelo `lookup`, que o kernel repete quando o nome expira. O macFUSE mantém os nomes em cache e só volta a pedir os atributos. O `open` devolve `FOPEN_PURGE_UBC` no macOS, para o kernel largar as páginas em cache, como o Linux faz ao abrir sem `FOPEN_KEEP_CACHE`.
+`getattr` e `open` usam `Vfs::getattr_fresh`, que primeiro relê a pasta-mãe se a listagem tiver mais de `dir_ttl`. No Linux isto já acontecia pelo `lookup`, que o kernel repete quando o nome expira; o NFS do macOS precisa disto.
 
-**Mount no macOS.** O `fuser` 0.18 monta com `fuse_mount_compat25` do libfuse2, que no macFUSE 5 falha sempre (-1, errno 0), porque aí o mount só termina depois de o sistema de ficheiros responder ao INIT. Por isso, no macOS, `fuse.rs` abre o dispositivo com `fuse_mount` (libfuse2, não-compat), passa o descritor a `Session::from_fd`, cujo handshake responde ao INIT, e desmonta com `unmount(2)`. Opções: `noappledouble`, `noapplexattr`, `volname`. `NASYNCLOUD_MACFUSE_BACKEND=fskit` pede o motor FSKit, que neste momento não monta.
+### NFS (`nfs.rs`, macOS)
+
+Desde a 1.1.0, o macOS não usa FUSE. O serviço abre um servidor NFSv3 (crate `nfsserve`) em 127.0.0.1, numa porta livre, e monta-o com o `mount_nfs` do sistema, que um utilizador normal pode usar numa pasta sua. Não há macFUSE, extensão de sistema nem password de administrador.
+
+- **Opções do mount**: `vers=3,tcp,port=P,mountport=P,locallocks,intr,actimeo=1,nonegnamecache,rsize=1048576,wsize=1048576,nfc`. É um mount *hard*: uma leitura lenta da NAS nunca dá erro por tempo esgotado. `locallocks` faz os bloqueios de ficheiros funcionarem (o Office precisa deles), `nonegnamecache` faz um ficheiro acabado de chegar à NAS aparecer logo, e `nfc` manda os nomes na forma que uma NAS Linux usa.
+- **Abrir e fechar**: o NFS não tem `open`/`close`. O primeiro READ ou WRITE abre o ficheiro no `Vfs` (`open_file`) e o ficheiro é fechado (`release`) depois de 1 s sem escritas ou 5 s sem leituras. Fechar um ficheiro alterado é o que agenda o upload, como no FUSE. Um contador de pedidos em curso impede que um ficheiro seja fechado a meio de um pedido (por exemplo, um WRITE à espera de descarregar o ficheiro todo).
+- **Datas**: a NAS dá segundos inteiros, e o cliente só larga a listagem ou o conteúdo em cache quando a data muda. Os nanossegundos levam `Attr::change` (`mut_gen` + `seen_gen`), que sobe com cada alteração local da pasta e com cada listagem da NAS que muda o nó. `getattr` usa `getattr_fresh`.
+- **`._*` e `.DS_Store`**: o NFSv3 não tem atributos estendidos, por isso o macOS guarda-os em ficheiros AppleDouble `._nome`. Esses ficheiros e os `.DS_Store` ficam num `Litter` em memória (ids a partir de 2⁶²), nunca vão para a NAS e não aparecem nas listagens. Os xattrs funcionam enquanto o serviço corre e perdem-se quando ele para.
+- **Erros**: offline dá `NFS3ERR_IO` (EIO), porque o NFS não tem "host is down".
+- **Fim do mount**: uma tarefa lê a tabela de mounts (`getmntinfo`, sem perguntar nada ao mount) a cada 0,5 s. Se o mount desaparecer (ejetado no Finder), fecha os ficheiros, para o servidor e avisa o serviço. Ao arrancar, um mount nosso deixado por um serviço morto é desmontado com `MNT_FORCE` *antes* de se olhar para a pasta, porque olhar para um mount hard sem servidor fica à espera.
+- **CLI**: os xattrs de controlo não chegam ao servidor, por isso no macOS os comandos usam a API local (`/api/status`, `/api/info`, `/api/pin`, `/api/free`, `/api/refresh`) com o token do `ui.json`.
+- **Limites**: o macOS calcula `st_blocks` a partir do tamanho (ignora o `used`), e o FSSTAT do `nfsserve` devolve sempre 1 TiB livre.
 
 ## App de bandeja (`desktop/`)
 
 Uma casca Tauri v2 que não tem o motor: arranca o binário `nasyncloud` que está ao lado (`nasyncloud serve`, o modo `Background` do serviço: interface sem browser) e mostra as páginas que ele serve em 127.0.0.1. São duas: `/panel`, o painel compacto junto ao ícone, e `/`, a interface completa numa janela normal. Lê o porto e o token do `ui.json`, e para saber se o serviço está vivo usa um GET `/api/ping` em HTTP simples, sobre `TcpStream`.
 
-As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar (por exemplo, falta o macFUSE), o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state` e `/api/transfers` a cada 1,5 s enquanto está visível. As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
+As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar, o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state` e `/api/transfers` a cada 1,5 s enquanto está visível. As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
 
 ## Motor Windows (`win.rs`)
 

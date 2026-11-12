@@ -15,8 +15,6 @@ members = ["desktop"]
 default = ["keyring"]
 # Guarda a password no cofre do sistema (Credential Manager / Keychain / Secret Service).
 keyring = ["dep:keyring"]
-# So para `cargo check --target aarch64-apple-darwin` a partir de outro SO (sem macFUSE instalado).
-macos-no-mount = ["fuser/macos-no-mount"]
 
 [dependencies]
 anyhow = "1"
@@ -43,10 +41,17 @@ toml = "1"
 keyring = { version = "4", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-fuser = "0.18"
 libc = "0.2"
 redb = "4"
+
+# Linux (and other Unix): FUSE. The command line talks to the mount through xattrs.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+fuser = "0.18"
 xattr = "1"
+
+# macOS: a local NFS server mounted with the system's own NFS client (no macFUSE).
+[target.'cfg(target_os = "macos")'.dependencies]
+nfsserve = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 cloud-filter = "0.0.7"

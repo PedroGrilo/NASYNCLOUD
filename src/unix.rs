@@ -1,5 +1,6 @@
-//! Linux/macOS: the FUSE mount (`Mounted`), plus the command-line helpers
-//! that talk to a running mount through extended attributes.
+//! Linux/macOS: the mount (`Mounted`: FUSE on Linux, a local NFS server on
+//! macOS), plus the command-line helpers that talk to a running mount (through
+//! extended attributes on Linux, through the local HTTP API on macOS).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,9 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
+#[cfg(not(target_os = "macos"))]
 use crate::fuse::Unmounter;
+#[cfg(target_os = "macos")]
+use crate::nfs::Unmounter;
 use nasyncloud::config::{format_size, Config};
-use nasyncloud::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT, XATTR_INFO, XATTR_STATUS};
+use nasyncloud::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT};
 use tokio::sync::watch;
 
 use crate::service::{EntryView, Listing, MountInfo};
@@ -35,12 +39,18 @@ impl Mounted {
             log::warn!("starting with what is already on this computer");
         }
         let vfs = Vfs::open(opts, Arc::new(dav)).await?;
-        let volume = cfg.url.trim_end_matches('/').rsplit('/').next().filter(|s| !s.is_empty() && !s.contains(':')).unwrap_or("NAS").to_string();
-        let (ended, unmounter) = match crate::fuse::mount(vfs.clone(), tokio::runtime::Handle::current(), &mountpoint, &volume) {
+        #[cfg(not(target_os = "macos"))]
+        let mounted = {
+            let volume = cfg.url.trim_end_matches('/').rsplit('/').next().filter(|s| !s.is_empty() && !s.contains(':')).unwrap_or("NAS").to_string();
+            crate::fuse::mount(vfs.clone(), tokio::runtime::Handle::current(), &mountpoint, &volume).map_err(|e| anyhow!("{e} (is FUSE installed? the `fuse3` package)"))
+        };
+        #[cfg(target_os = "macos")]
+        let mounted = crate::nfs::mount(vfs.clone(), &mountpoint).await.map_err(anyhow::Error::from);
+        let (ended, unmounter) = match mounted {
             Ok(m) => m,
             Err(e) => {
                 vfs.shutdown().await;
-                return Err(e).with_context(|| format!("cannot mount on {} (is FUSE installed? Linux: the `fuse3` package; macOS: macFUSE)", mountpoint.display()));
+                return Err(e).with_context(|| format!("cannot mount on {}", mountpoint.display()));
             }
         };
         log::info!("{} is mounted on {}", cfg.url, mountpoint.display());
@@ -114,6 +124,17 @@ impl Mounted {
         Ok(self.vfs.evict(id)?)
     }
 
+    #[cfg(target_os = "macos")]
+    pub async fn status(&self, rel: &str) -> Result<NodeStatus> {
+        let id = self.resolve(rel).await?;
+        Ok(self.vfs.status(id)?)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn vfs_info(&self) -> Info {
+        self.vfs.info()
+    }
+
     pub async fn refresh(&self, rel: &str) -> Result<()> {
         let id = self.resolve(rel).await?;
         self.vfs.refresh(id).await?;
@@ -173,6 +194,11 @@ fn is_mounted(mountpoint: &Path) -> bool {
 }
 
 fn prepare_mountpoint(mountpoint: &Path) -> Result<()> {
+    // A dead NFS mount must go before anything looks inside it, or that hangs.
+    #[cfg(target_os = "macos")]
+    if crate::nfs::clean_stale(mountpoint).with_context(|| format!("cannot clean up the old mount on {}", mountpoint.display()))? {
+        log::warn!("cleaned up a stale mount on {}", mountpoint.display());
+    }
     match std::fs::read_dir(mountpoint) {
         Ok(mut entries) => {
             if entries.next().is_some() {
@@ -193,6 +219,10 @@ fn prepare_mountpoint(mountpoint: &Path) -> Result<()> {
 }
 
 pub fn force_unmount(mountpoint: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    if crate::nfs::clean_stale(mountpoint)? {
+        return Ok(());
+    }
     let attempts: &[&[&str]] = if cfg!(target_os = "macos") { &[&["umount"], &["diskutil", "unmount", "force"]] } else { &[&["fusermount3", "-u"], &["fusermount", "-u"], &["fusermount3", "-uz"], &["umount", "-l"]] };
     let mut last = String::new();
     for cmd in attempts {
@@ -212,34 +242,147 @@ fn not_ours(path: &Path) -> anyhow::Error {
     anyhow!("{} is not inside a running nasyncloud mount", path.display())
 }
 
-fn get_status(path: &Path) -> Result<NodeStatus> {
-    let raw = xattr::get(path, XATTR_STATUS).map_err(|_| not_ours(path))?.ok_or_else(|| not_ours(path))?;
-    Ok(serde_json::from_slice(&raw)?)
+fn not_running(mountpoint: &Path) -> anyhow::Error {
+    anyhow!("nothing is mounted on {} (start it with `nasyncloud mount` or `nasyncloud ui`)", mountpoint.display())
 }
 
-pub fn set_all(paths: &[PathBuf], attr: &str, value: &[u8], done: &str) -> Result<()> {
+/// How the command line reaches the running mount: control xattrs on the
+/// FUSE mount (Linux), the local HTTP API (macOS, where the NFS mount turns
+/// xattrs into `._` files the server never sees).
+pub struct Control {
+    #[cfg(target_os = "macos")]
+    api: Api,
+}
+
+impl Control {
+    #[cfg(not(target_os = "macos"))]
+    pub fn new(_cfg_path: &Path) -> Result<Self> {
+        Ok(Self {})
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn new(cfg_path: &Path) -> Result<Self> {
+        Ok(Self { api: Api::new(cfg_path)? })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn status(&self, path: &Path) -> Result<NodeStatus> {
+        let raw = xattr::get(path, nasyncloud::vfs::XATTR_STATUS).map_err(|_| not_ours(path))?.ok_or_else(|| not_ours(path))?;
+        Ok(serde_json::from_slice(&raw)?)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn status(&self, path: &Path) -> Result<NodeStatus> {
+        let rel = self.api.rel(path)?;
+        let query = percent_encoding::utf8_percent_encode(&rel, percent_encoding::NON_ALPHANUMERIC);
+        Ok(serde_json::from_value(self.api.call("GET", &format!("/api/status?path={query}"), None)?)?)
+    }
+
+    /// Sends one of the control attributes (`XATTR_PIN`, `XATTR_EVICT`, `XATTR_REFRESH`).
+    #[cfg(not(target_os = "macos"))]
+    fn send(&self, path: &Path, attr: &str, value: &[u8]) -> Result<()> {
+        self.status(path)?;
+        xattr::set(path, attr, value).map_err(|e| match e.raw_os_error() {
+            Some(libc::EBUSY) => anyhow!("{} is kept offline by a parent folder; unpin that folder first", path.display()),
+            _ => anyhow!("{}: {e}", path.display()),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn send(&self, path: &Path, attr: &str, value: &[u8]) -> Result<()> {
+        let rel = self.api.rel(path)?;
+        let (endpoint, body) = match attr {
+            nasyncloud::vfs::XATTR_PIN => ("/api/pin", serde_json::json!({ "path": rel, "on": value.first() == Some(&b'1') })),
+            XATTR_EVICT => ("/api/free", serde_json::json!({ "path": rel })),
+            _ => ("/api/refresh", serde_json::json!({ "path": rel })),
+        };
+        self.api.call("POST", endpoint, Some(&body)).map(|_| ()).with_context(|| path.display().to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn info(&self, mountpoint: &Path) -> Result<Info> {
+        let raw = xattr::get(mountpoint, nasyncloud::vfs::XATTR_INFO).ok().flatten().ok_or_else(|| not_running(mountpoint))?;
+        Ok(serde_json::from_slice(&raw)?)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn info(&self, mountpoint: &Path) -> Result<Info> {
+        let value = self.api.call("GET", "/api/info", None).map_err(|_| not_running(mountpoint))?;
+        Ok(serde_json::from_value(value)?)
+    }
+}
+
+/// A tiny client for the local API (127.0.0.1 only, so plain HTTP/1.1 over a
+/// socket is enough).
+#[cfg(target_os = "macos")]
+struct Api {
+    port: u16,
+    token: String,
+    mountpoint: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl Api {
+    fn new(cfg_path: &Path) -> Result<Self> {
+        let cfg = Config::load(cfg_path)?;
+        let mountpoint = cfg.mountpoint();
+        let (port, token) = crate::ui::local_api(cfg_path).ok_or_else(|| not_running(&mountpoint))?;
+        // Resolved through its parent: looking at the mount itself could hang
+        // if its server is gone.
+        let parent = match mountpoint.parent() {
+            Some(p) => std::fs::canonicalize(p).with_context(|| p.display().to_string())?,
+            None => PathBuf::from("/"),
+        };
+        Ok(Self { port, token, mountpoint: parent.join(mountpoint.file_name().unwrap_or_default()) })
+    }
+
+    /// `path` relative to the mount, `/`-separated.
+    fn rel(&self, path: &Path) -> Result<String> {
+        let full = std::fs::canonicalize(path).with_context(|| path.display().to_string())?;
+        let rel = full.strip_prefix(&self.mountpoint).map_err(|_| not_ours(path))?;
+        let parts: Option<Vec<&str>> = rel.components().map(|c| c.as_os_str().to_str()).collect();
+        Ok(parts.ok_or_else(|| anyhow!("{}: the name is not valid UTF-8", path.display()))?.join("/"))
+    }
+
+    fn call(&self, method: &str, target: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+        use std::io::{Read, Write};
+        let body = body.map(|b| b.to_string()).unwrap_or_default();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).map_err(|_| not_running(&self.mountpoint))?;
+        stream.set_read_timeout(Some(Duration::from_secs(300)))?;
+        let port = self.port;
+        write!(stream, "{method} {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nx-nasyncloud-token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", self.token, body.len())?;
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw)?;
+        let text = String::from_utf8_lossy(&raw);
+        let (head, body) = text.split_once("\r\n\r\n").ok_or_else(|| anyhow!("unexpected answer from nasyncloud"))?;
+        let code = head.split(' ').nth(1).and_then(|c| c.parse::<u16>().ok()).unwrap_or(0);
+        let value: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+        if code != 200 {
+            bail!("{}", value["error"].as_str().unwrap_or("request failed"));
+        }
+        Ok(value)
+    }
+}
+
+pub fn set_all(ctl: &Control, paths: &[PathBuf], attr: &str, value: &[u8], done: &str) -> Result<()> {
     if paths.is_empty() {
         bail!("give at least one path inside the mount");
     }
     for path in paths {
-        get_status(path)?;
-        xattr::set(path, attr, value).with_context(|| format!("{}", path.display()))?;
+        ctl.send(path, attr, value)?;
         println!("{}: {done}", path.display());
     }
     Ok(())
 }
 
-pub fn free(paths: &[PathBuf]) -> Result<()> {
+pub fn free(ctl: &Control, paths: &[PathBuf]) -> Result<()> {
     if paths.is_empty() {
         bail!("give at least one path inside the mount");
     }
     for path in paths {
-        let before = get_status(path)?.cached;
-        xattr::set(path, XATTR_EVICT, b"1").map_err(|e| match e.raw_os_error() {
-            Some(libc::EBUSY) => anyhow!("{} is kept offline by a parent folder; unpin that folder first", path.display()),
-            _ => anyhow!("{}: {e}", path.display()),
-        })?;
-        let after = get_status(path)?.cached;
+        let before = ctl.status(path)?.cached;
+        ctl.send(path, XATTR_EVICT, b"1")?;
+        let after = ctl.status(path)?.cached;
         println!("{}: freed {}", path.display(), format_size(before.saturating_sub(after)));
     }
     Ok(())
@@ -265,16 +408,15 @@ fn describe(s: &NodeStatus) -> String {
     line
 }
 
-pub fn status(paths: &[PathBuf]) -> Result<()> {
+pub fn status(ctl: &Control, paths: &[PathBuf]) -> Result<()> {
     for path in paths {
-        println!("{}: {}", path.display(), describe(&get_status(path)?));
+        println!("{}: {}", path.display(), describe(&ctl.status(path)?));
     }
     Ok(())
 }
 
-pub fn info(mountpoint: &Path) -> Result<()> {
-    let raw = xattr::get(mountpoint, XATTR_INFO).ok().flatten().ok_or_else(|| anyhow!("nothing is mounted on {} (start it with `nasyncloud mount` or `nasyncloud ui`)", mountpoint.display()))?;
-    let info: Info = serde_json::from_slice(&raw)?;
+pub fn info(ctl: &Control, mountpoint: &Path) -> Result<()> {
+    let info = ctl.info(mountpoint)?;
     println!("mount:    {}", mountpoint.display());
     println!("NAS:      {}", if info.online { "reachable" } else { "UNREACHABLE (working offline)" });
     println!("cache:    {} of {} ({} known items)", format_size(info.cache_bytes), format_size(info.cache_max), info.nodes);
@@ -285,12 +427,12 @@ pub fn info(mountpoint: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn ls(dir: &Path) -> Result<()> {
-    get_status(dir)?;
+pub fn ls(ctl: &Control, dir: &Path) -> Result<()> {
+    ctl.status(dir)?;
     let mut names: Vec<PathBuf> = std::fs::read_dir(dir)?.filter_map(|e| Some(e.ok()?.path())).collect();
     names.sort();
     for path in names {
-        let s = get_status(&path)?;
+        let s = ctl.status(&path)?;
         let pin = if s.pinned == Pin::No { ' ' } else { '*' };
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         println!("{:<9}{pin} {:>10}  {name}{}", if s.dir { "folder" } else { s.state.as_str() }, format_size(s.size), if s.dir { "/" } else { "" });

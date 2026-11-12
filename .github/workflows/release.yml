@@ -29,8 +29,6 @@ jobs:
     name: macOS
     runs-on: macos-latest
     env:
-      # macFUSE installs libfuse and its .pc files under /usr/local.
-      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -41,8 +39,6 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
           [ "${GITHUB_REF_NAME#v}" = "$version" ] || { echo "::error::the tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"; exit 1; }
           [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret is missing: updates could not be verified"; exit 1; }
-      - name: Install macFUSE (only to link against its libfuse)
-        run: brew install --cask macfuse
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked

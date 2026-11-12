@@ -59,6 +59,12 @@ fn read_ui_file(cfg_path: &Path) -> Option<UiFile> {
     serde_json::from_slice(&std::fs::read(ui_file(cfg_path)).ok()?).ok()
 }
 
+/// Port and token of the local API, for the command line (macOS).
+#[cfg(target_os = "macos")]
+pub fn local_api(cfg_path: &Path) -> Option<(u16, String)> {
+    read_ui_file(cfg_path).map(|f| (f.port, f.token))
+}
+
 fn write_ui_file(cfg_path: &Path, file: &UiFile) -> Result<()> {
     let path = ui_file(cfg_path);
     if let Some(dir) = path.parent() {
@@ -327,6 +333,15 @@ impl Handler {
                 let rel = clean_rel(&param(&query, "path").unwrap_or_default())?;
                 serde_json::to_value(svc.mounted()?.browse(&rel).await?)?
             }
+            // For the command line on macOS, where the NFS mount cannot carry
+            // the control xattrs.
+            #[cfg(target_os = "macos")]
+            ("GET", "/api/status") => {
+                let rel = clean_rel(&param(&query, "path").unwrap_or_default())?;
+                serde_json::to_value(svc.mounted()?.status(&rel).await?)?
+            }
+            #[cfg(target_os = "macos")]
+            ("GET", "/api/info") => serde_json::to_value(svc.mounted()?.vfs_info())?,
             ("POST", "/api/pin") => {
                 let r: PathReq = serde_json::from_value(body)?;
                 svc.mounted()?.pin(&clean_rel(&r.path)?, r.on.unwrap_or(true)).await?;

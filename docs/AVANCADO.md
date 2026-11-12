@@ -12,9 +12,8 @@ sudo apt install fuse3 pkg-config libssl-dev
 cargo build --release      # binário em target/release/nasyncloud
 ```
 
-**macOS**: instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente e segue as instruções dele para permitir a extensão de sistema. O NASYNCLOUD usa o motor clássico (kext) do macFUSE, por isso a extensão tem de estar autorizada e é preciso reiniciar. Depois:
+**macOS**: não é preciso instalar nada além do Rust. O mount é um servidor NFS local (só em 127.0.0.1) montado com o cliente NFS que o macOS já traz, sem administrador nem extensões de sistema. O macFUSE já não é usado (até à 1.0.0 era).
 ```sh
-brew install pkg-config
 cargo build --release
 tools/package-macos.sh     # opcional: dist/NASYNCLOUD.app e o .dmg
 ```
@@ -68,7 +67,9 @@ nasyncloud refresh ~/NAS/Fotos    # reler da NAS agora
 nasyncloud unmount                # se uma sessão anterior ficou pendurada
 ```
 
-No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o macFUSE não deixa mudar isso): usa `nasyncloud ls` ou `nasyncloud status`.
+No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o cliente NFS calcula-o a partir do tamanho): usa `nasyncloud ls` ou `nasyncloud status`.
+
+No macOS, estes comandos falam com o serviço pela API local (a mesma da interface), por isso só funcionam com o NASYNCLOUD a correr. No Linux usam atributos estendidos no próprio mount.
 
 ### Windows
 
@@ -125,9 +126,9 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config
 
 ## Limitações conhecidas
 
-- **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (dá "Host is down" offline). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
+- **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (offline dá "Host is down" no Linux e "Input/output error" no macOS). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
 - **Windows**: as alterações feitas na NAS por outros dispositivos só aparecem na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
-- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada). O `du` não reflete o que está no disco (ver acima). O `cp` avisa «could not copy extended attributes» quando o ficheiro tem atributos `com.apple.*`: o ficheiro é copiado inteiro, só esses atributos é que não vão para a NAS. O motor FSKit do macFUSE ainda não funciona com o NASYNCLOUD.
+- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão File Provider assinada). O `du` não reflete o que está no disco (ver acima). Os atributos estendidos (etiquetas, quarentena, …) funcionam enquanto o NASYNCLOUD corre, mas ficam só em memória: não vão para a NAS e perdem-se quando ele para. O espaço livre que o Finder mostra é fixo (1 TiB), não o da NAS. Se o serviço morrer sem desmontar (por exemplo, `kill -9`), quem estiver a usar a pasta fica à espera até o NASYNCLOUD voltar a arrancar, e nessa altura o mount antigo é retirado.
 - Permissões (`chmod`/`chown`), links simbólicos e atributos estendidos não são guardados na NAS.
 - `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador.
 - Os uploads deixam temporariamente ficheiros `.*.nasyncloud-part` na NAS; restos com mais de um dia são apagados sozinhos.

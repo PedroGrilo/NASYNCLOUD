@@ -43,9 +43,8 @@ On other NAS devices, look for "WebDAV" in the file service or file sharing sett
 ### 2. Install NASYNCLOUD
 
 **On a Mac**
-1. First install [macFUSE](https://macfuse.github.io/), which lets macOS show your NAS as a folder. When macOS asks, allow it in **System Settings → Privacy & Security**, then restart your Mac.
-2. Download `NASYNCLOUD-…-macos-arm64.dmg` from [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases/latest), open it and drag NASYNCLOUD to **Applications**.
-3. The first time you open it, macOS says it can't verify the app (it isn't signed by Apple yet). Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+1. Download `NASYNCLOUD-…-macos-arm64.dmg` from [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases/latest), open it and drag NASYNCLOUD to **Applications**. Nothing else to install.
+2. The first time you open it, macOS says it can't verify the app (it isn't signed by Apple yet). Go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
 **On Windows** *(experimental)*
 1. Download `NASYNCLOUD-…-windows-x64-setup.exe` from [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases/latest) and run it. It doesn't need administrator rights.
@@ -105,8 +104,8 @@ Updates are signed: NASYNCLOUD only installs versions published by this project.
 **My Mac says it can't open NASYNCLOUD.**
 That's because the app isn't signed by Apple yet. Go to **System Settings → Privacy & Security** and click **Open Anyway**. You only need to do this once.
 
-**I see «Falta o macFUSE» (macFUSE is missing).**
-Install [macFUSE](https://macfuse.github.io/), allow it in **Privacy & Security**, restart your Mac and open NASYNCLOUD again.
+**Do I need macFUSE?**
+Not since version 1.1.0: NASYNCLOUD now uses the NFS support built into macOS, so there is no system extension to allow and no restart. If you installed macFUSE only for NASYNCLOUD, you can uninstall it.
 
 **After an update, my Mac asks to use the Keychain.**
 That's expected. NASYNCLOUD keeps your NAS password in the Keychain, and macOS asks again after the app changes. Choose **Always Allow**.

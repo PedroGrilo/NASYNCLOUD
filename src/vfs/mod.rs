@@ -130,6 +130,8 @@ pub struct Attr {
     pub mtime: i64,
     /// Bytes actually stored on this machine.
     pub local_bytes: u64,
+    /// Changes whenever the node changes, even within the same second.
+    pub change: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -189,6 +191,10 @@ struct Node {
     /// Bumped on every local change to the folder's namespace, so a listing
     /// fetched before the change is not applied on top of it.
     mut_gen: u64,
+    /// Bumped whenever a server listing changes this node (its version, or
+    /// for a folder, its entries). Lets NFS clients notice changes their
+    /// one-second timestamps would miss.
+    seen_gen: u64,
     refresh_lock: Option<Arc<tokio::sync::Mutex<()>>>,
     opens: u32,
     writers: u32,
@@ -227,6 +233,7 @@ impl Node {
             children: BTreeMap::new(),
             listed_at: None,
             mut_gen: 0,
+            seen_gen: 0,
             refresh_lock: None,
             opens: 0,
             writers: 0,
@@ -275,7 +282,7 @@ impl Node {
     }
 
     fn attr(&self) -> Attr {
-        Attr { id: self.id, kind: self.kind, size: self.size, mtime: self.mtime, local_bytes: self.cached.len() }
+        Attr { id: self.id, kind: self.kind, size: self.size, mtime: self.mtime, local_bytes: self.cached.len(), change: self.mut_gen + self.seen_gen }
     }
 
     /// All the content is on this machine.
@@ -814,6 +821,11 @@ impl Vfs {
 
     pub fn getattr(&self, id: NodeId) -> Result<Attr> {
         Ok(self.st().get(id)?.attr())
+    }
+
+    /// The folder `id` is in (the root is its own parent).
+    pub fn parent(&self, id: NodeId) -> Result<NodeId> {
+        Ok(if id == ROOT { ROOT } else { self.st().get(id)?.parent })
     }
 
     /// Like [`Vfs::getattr`], but first makes sure the listing `id` came from

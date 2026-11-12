@@ -1,6 +1,6 @@
 #!/bin/bash
-# End-to-end test: real FUSE mount against a real WebDAV server.
-# Linux (fuse3) or macOS (macFUSE), plus curl, bc, python3. Run `cargo build` first.
+# End-to-end test: real mount against a real WebDAV server.
+# Linux (FUSE: fuse3) or macOS (local NFS, nothing to install), plus curl, bc, python3. Run `cargo build` first.
 # The NAS is rclone (Go x/net/webdav) when installed, otherwise `cargo build --example fake_nas`
 # (dav-server). Force one with NAS_SERVER=rclone|fake_nas. Work folder: E2E_DIR (default /tmp/e2e).
 BIN=${BIN:-$(cd "$(dirname "$0")/.." && pwd)/target/debug/nasyncloud}
@@ -70,7 +70,7 @@ start_nd && ok "mounted" || { bad "mount"; cat $W/nasyncloud.log; exit 1; }
 check "top-level listing" test "$(ls $MNT | tr '\n' ' ')" = "Docs Media "
 check "names with accents/spaces" test -f "$MNT/Docs/relatório final (v2).txt"
 check "size without download" test "$(fsize $MNT/Media/filme.mkv)" = 40000000
-if [ -n "$MAC" ]; then skip "online-only file uses no local blocks (macFUSE derives st_blocks from the size)"
+if [ -n "$MAC" ]; then skip "online-only file uses no local blocks (the macOS NFS client derives st_blocks from the size)"
 else check "online-only file uses no local blocks" test "$(fblocks $MNT/Media/filme.mkv)" = 0; fi
 grep -q "GET /Media" $W/nas.log && bad "browsing triggered a download" || ok "browsing downloads nothing"
 

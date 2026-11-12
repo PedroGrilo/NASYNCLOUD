@@ -1,5 +1,14 @@
 # Changelog
 
+## Por lançar
+
+- **macOS sem macFUSE.** O mount passa a ser um servidor NFS local (só em 127.0.0.1, porta aleatória, crate `nfsserve`) montado com o cliente NFS que o macOS já traz (`mount_nfs`, sem administrador). Já não é preciso instalar o macFUSE, autorizar a extensão de sistema nem reiniciar. Linux continua com FUSE.
+- macOS: os atributos estendidos funcionam (`ditto`, `cp -p`, etiquetas e quarentena do Finder). Os ficheiros `._*` e `.DS_Store` onde o macOS os guarda ficam em memória e nunca vão para a NAS; perdem-se quando o NASYNCLOUD para.
+- macOS: os comandos `pin`, `unpin`, `free`, `status`, `ls` e `refresh` falam com o serviço pela API local (o NFS não deixa passar os xattrs de controlo). Precisam do NASYNCLOUD a correr.
+- macOS: um mount deixado por um serviço que morreu é desmontado à força no arranque seguinte, antes de se olhar para a pasta (com o servidor morto, olhar para ela ficava à espera).
+- Motor: cada nó tem um contador de alterações (`Attr::change`) que sobe quando uma listagem da NAS o muda. O NFS usa-o nos nanossegundos das datas, para o macOS notar alterações feitas no mesmo segundo ou em pastas cuja data a NAS não muda.
+- A app deixou de verificar o macFUSE, e o workflow deixou de o instalar.
+
 ## 1.0.0 — 2026-11-12
 
 - **Atualizações automáticas** na app: verifica as Releases (`latest.json`) ao arrancar e a cada 6 horas, mostra uma notificação e um aviso no painel, e «Atualizar agora» descarrega, confirma a assinatura, instala e reinicia. O menu do ícone tem «Procurar atualizações».

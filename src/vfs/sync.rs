@@ -94,6 +94,7 @@ impl Vfs {
         let pinned = st.pin_of(dir) != Pin::No;
         let mut seen = HashSet::new();
         let mut changed = false;
+        let mut removed = false;
         for e in entries {
             if !valid_name(&e.name) {
                 continue;
@@ -103,7 +104,12 @@ impl Vfs {
             if let Some(&cid) = existing.get(&e.name) {
                 let Some(n) = st.nodes.get(&cid) else { continue };
                 if n.kind == kind {
-                    changed |= self.update_from_server(st, cid, &e.version);
+                    if self.update_from_server(st, cid, &e.version) {
+                        changed = true;
+                        if let Some(n) = st.nodes.get_mut(&cid) {
+                            n.seen_gen += 1;
+                        }
+                    }
                     continue;
                 }
                 // A file turned into a folder or vice versa.
@@ -134,8 +140,12 @@ impl Vfs {
             } else {
                 self.drop_subtree(st, cid);
             }
+            removed = true;
         }
         if let Some(d) = st.nodes.get_mut(&dir) {
+            if changed || removed {
+                d.seen_gen += 1;
+            }
             d.listed = true;
             d.listed_at = Some(Instant::now());
         }

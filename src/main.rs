@@ -9,9 +9,11 @@ use nasyncloud::config::{Config, PASSWORD_ENV};
 use nasyncloud::remote::{Remote, RemoteError};
 use nasyncloud::webdav::WebDav;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod fuse;
 mod logging;
+#[cfg(target_os = "macos")]
+mod nfs;
 mod service;
 mod ui;
 #[cfg(unix)]
@@ -102,19 +104,19 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(unix)]
         Command::Unmount => unix::force_unmount(&Config::load(&path)?.mountpoint()),
         #[cfg(unix)]
-        Command::Pin { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_PIN, b"1", "kept offline"),
+        Command::Pin { paths } => unix::set_all(&unix::Control::new(&path)?, &paths, nasyncloud::vfs::XATTR_PIN, b"1", "kept offline"),
         #[cfg(unix)]
-        Command::Unpin { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_PIN, b"0", "no longer kept offline"),
+        Command::Unpin { paths } => unix::set_all(&unix::Control::new(&path)?, &paths, nasyncloud::vfs::XATTR_PIN, b"0", "no longer kept offline"),
         #[cfg(unix)]
-        Command::Free { paths } => unix::free(&paths),
+        Command::Free { paths } => unix::free(&unix::Control::new(&path)?, &paths),
         #[cfg(unix)]
-        Command::Status { paths } if paths.is_empty() => unix::info(&Config::load(&path)?.mountpoint()),
+        Command::Status { paths } if paths.is_empty() => unix::info(&unix::Control::new(&path)?, &Config::load(&path)?.mountpoint()),
         #[cfg(unix)]
-        Command::Status { paths } => unix::status(&paths),
+        Command::Status { paths } => unix::status(&unix::Control::new(&path)?, &paths),
         #[cfg(unix)]
-        Command::Ls { dir } => unix::ls(&dir.unwrap_or_else(|| PathBuf::from("."))),
+        Command::Ls { dir } => unix::ls(&unix::Control::new(&path)?, &dir.unwrap_or_else(|| PathBuf::from("."))),
         #[cfg(unix)]
-        Command::Refresh { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_REFRESH, b"1", "refreshed"),
+        Command::Refresh { paths } => unix::set_all(&unix::Control::new(&path)?, &paths, nasyncloud::vfs::XATTR_REFRESH, b"1", "refreshed"),
         #[cfg(windows)]
         Command::Unregister => win::unregister(&Config::load(&path)?),
     }

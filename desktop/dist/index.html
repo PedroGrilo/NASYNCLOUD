@@ -32,13 +32,7 @@ a,button{margin-top:6px;padding:8px 14px;border-radius:9px;border:0;background:#
 // intercepts the /app/... links (retry, quit, open a web page).
 const info = window.__nasyncloud || {};
 const log = info.log;
-if (info.reason === 'macfuse') {
-  document.getElementById('title').textContent = 'Falta o macFUSE';
-  document.getElementById('text').textContent = 'O NASYNCLOUD precisa do macFUSE 5.5 ou mais recente. Instala-o, autoriza a extensão de sistema quando o macOS pedir, reinicia o Mac e volta a abrir o NASYNCLOUD.';
-  const go = document.getElementById('go');
-  go.textContent = 'Abrir o site do macFUSE';
-  go.href = '/app/web?url=' + encodeURIComponent('https://macfuse.github.io/');
-} else if (log) {
+if (log) {
   const t = document.getElementById('text');
   t.textContent = 'Não foi possível iniciar o serviço do NASYNCLOUD. O registo está em ';
   t.append(Object.assign(document.createElement('code'), { textContent: log }), '.');

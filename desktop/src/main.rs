@@ -80,7 +80,6 @@ fn service_binary() -> PathBuf {
 }
 
 enum StartError {
-    MacFuseMissing,
     Failed(String),
 }
 
@@ -89,10 +88,6 @@ enum StartError {
 fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
     if let Some(ui) = alive() {
         return Ok(ui);
-    }
-    // nasyncloud links against macFUSE's libfuse: without it, it cannot even start.
-    if cfg!(target_os = "macos") && !std::path::Path::new("/usr/local/lib/libfuse.2.dylib").exists() {
-        return Err(StartError::MacFuseMissing);
     }
     let log = log_path();
     if let Some(dir) = log.parent() {
@@ -158,7 +153,6 @@ fn panel_target(app: &AppHandle) -> (WebviewUrl, Option<String>) {
             *sh.ui.lock().unwrap() = Some(ui);
             (WebviewUrl::External(url.parse().expect("panel URL")), None)
         }
-        Err(StartError::MacFuseMissing) => (WebviewUrl::App("index.html".into()), Some(r#"window.__nasyncloud = { reason: "macfuse" };"#.into())),
         Err(StartError::Failed(msg)) => {
             eprintln!("nasyncloud: {msg}");
             let info = serde_json::json!({ "reason": "failed", "log": log_path().display().to_string() });
