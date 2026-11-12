@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicU8;
 use futures_util::StreamExt;
 
 use super::*;
+use crate::activity::Direction;
 use crate::remote::norm_etag;
 
 /// A reader this close ahead of a running stream waits for it instead of
@@ -16,6 +17,35 @@ const CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 const PROGRESS_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// One ranged download stream feeding a file's cache.
+/// An upload shown in the activity list. Unless it ends with `ok` or `fail`,
+/// it disappears (it will be retried, and shown again then).
+struct UploadAct<'a> {
+    activity: &'a crate::activity::Activity,
+    id: u64,
+    over: bool,
+}
+
+impl UploadAct<'_> {
+    fn ok(mut self, bytes: u64) {
+        self.activity.progress(self.id, bytes);
+        self.activity.end(self.id, None);
+        self.over = true;
+    }
+
+    fn fail(mut self, error: String) {
+        self.activity.end(self.id, Some(error));
+        self.over = true;
+    }
+}
+
+impl Drop for UploadAct<'_> {
+    fn drop(&mut self) {
+        if !self.over {
+            self.activity.discard_if_empty(self.id);
+        }
+    }
+}
+
 pub(super) struct Dl {
     start: u64,
     /// Where the stream stops (next cached range, or end of file).
@@ -149,7 +179,13 @@ impl Vfs {
 
     #[allow(clippy::too_many_arguments)]
     async fn run_download(self: Arc<Self>, id: NodeId, dl: Arc<Dl>, path: String, version: Version, file: Arc<File>, gen: u32, progress: Arc<watch::Sender<u64>>) {
-        let res = self.download(id, &dl, &path, &version, &file, gen, &progress).await;
+        let act = self.activity.begin(Direction::Download, &path, version.size);
+        let res = self.download(id, &dl, &path, &version, &file, gen, &progress, act).await;
+        match &res {
+            // Nothing to show for a read that stopped at once or a file that changed meanwhile.
+            Ok(()) | Err(RemoteError::Changed) => self.activity.discard_if_empty(act),
+            Err(e) => self.activity.end(act, Some(e.to_string())),
+        }
         let mut recheck = None;
         {
             let mut st = self.st();
@@ -182,7 +218,7 @@ impl Vfs {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn download(&self, id: NodeId, dl: &Dl, path: &str, version: &Version, file: &File, gen: u32, progress: &watch::Sender<u64>) -> std::result::Result<(), RemoteError> {
+    async fn download(&self, id: NodeId, dl: &Dl, path: &str, version: &Version, file: &File, gen: u32, progress: &watch::Sender<u64>, act: u64) -> std::result::Result<(), RemoteError> {
         let mut d = self.remote.open_range(path, dl.start, Some(dl.end)).await?;
         if let (Some(a), Some(b)) = (&d.etag, &version.etag) {
             if norm_etag(a) != norm_etag(b) {
@@ -237,6 +273,7 @@ impl Vfs {
                     let added = n.cached.insert(pos, pos + take);
                     n.unsynced = true;
                     st.cache_bytes += added;
+                    self.activity.progress(act, added);
                     if st.cache_bytes > self.opts.cache_max {
                         self.evict_wake.notify_one();
                     }
@@ -390,6 +427,7 @@ impl Vfs {
                 *sh.tmp.lock().unwrap() = Some(target.clone());
             }
             sh.phase.store(if atomic { PH_TMP } else { PH_DIRECT }, Ordering::SeqCst);
+            let act = UploadAct { activity: &self.activity, id: self.activity.begin(Direction::Upload, &path, size), over: false };
             if let Err(e) = self.remote.upload(&target, &src, size, mtime).await {
                 if atomic {
                     let _ = self.remote.delete(&target, false).await;
@@ -403,6 +441,7 @@ impl Vfs {
                 if matches!(e, RemoteError::Precondition(_)) {
                     self.recheck_dir(parent).await;
                 }
+                act.fail(e.to_string());
                 return self.net(Err(e));
             }
             if atomic {
@@ -414,6 +453,7 @@ impl Vfs {
                         self.atomic_upload.store(false, Ordering::SeqCst);
                         continue;
                     }
+                    act.fail(e.to_string());
                     return self.net(Err(e));
                 }
                 *sh.tmp.lock().unwrap() = None;
@@ -436,6 +476,7 @@ impl Vfs {
                 p.mut_gen += 1;
             }
             log::info!("uploaded {path} ({})", crate::config::format_size(size));
+            act.ok(size);
             return Ok(());
         }
         Err(VfsError::Io("could not settle on a name for the upload".into()))

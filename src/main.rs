@@ -45,6 +45,8 @@ enum Command {
     Setup,
     /// Mount the NAS, keep it in sync and serve the interface, without opening a browser (runs until Ctrl+C).
     Mount,
+    /// Like `ui`, but without opening the browser (used by the desktop app).
+    Serve,
     /// Unmount a mount left behind (Linux/macOS).
     #[cfg(unix)]
     Unmount,
@@ -87,7 +89,7 @@ fn run(cli: Cli) -> Result<()> {
     };
     let command = cli.command.unwrap_or(Command::Ui);
     #[cfg(unix)]
-    if !matches!(command, Command::Mount | Command::Ui) {
+    if !matches!(command, Command::Mount | Command::Ui | Command::Serve) {
         // Let `nasdrive ls | head` end quietly instead of panicking on a closed pipe.
         // SAFETY: restoring the default disposition of a signal is always sound.
         unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
@@ -96,6 +98,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Ui => ui::open_or_run(&path),
         Command::Setup => setup(&path),
         Command::Mount => service::run(&path, service::Mode::Headless),
+        Command::Serve => service::run(&path, service::Mode::Background),
         #[cfg(unix)]
         Command::Unmount => unix::force_unmount(&Config::load(&path)?.mountpoint()),
         #[cfg(unix)]

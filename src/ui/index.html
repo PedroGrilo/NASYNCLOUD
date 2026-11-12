@@ -448,7 +448,9 @@ try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage di
   if (m) {
     token = m[1];
     try { localStorage.setItem(TOKEN_KEY, token); } catch (_) { /* keep it for this tab only */ }
-    history.replaceState(null, '', location.pathname + '#/');
+    // The desktop app may ask for a section: `#t=TOKEN&view=definicoes`.
+    const v = location.hash.match(/[#&]view=([a-z]*)/);
+    history.replaceState(null, '', location.pathname + '#/' + (v ? v[1] : ''));
   }
 }
 

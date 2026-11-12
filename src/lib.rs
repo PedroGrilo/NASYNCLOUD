@@ -4,6 +4,7 @@
 //! * `vfs` (Linux/macOS): the on-demand engine behind the FUSE mount.
 //! * The Windows engine (Cloud Files API) lives in the binary crate.
 
+pub mod activity;
 pub mod config;
 pub mod remote;
 pub mod webdav;

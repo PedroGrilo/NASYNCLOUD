@@ -1,5 +1,11 @@
 # Changelog
 
+## Por lançar
+
+- **App de barra de menus / área de notificação** (`desktop/`, Tauri v2), como o OneDrive: o ícone abre um painel com o estado, as transferências em curso (com progresso) e as recentes, o espaço usado e um menu (abrir a interface completa numa janela, Definições, pausar, sair). Arranca e para sozinha o serviço. No macOS vai no `.dmg` em vez da app anterior. No Windows, o zip leva o `nasdrive-desktop.exe` e o `nasdrive.exe`.
+- Motor: regista as transferências (`/api/transfers`), juntando as do mesmo ficheiro.
+- `nasdrive serve`: como o `ui`, mas sem abrir o browser (é o que a app usa).
+
 ## 0.2.1 — 2026-11-12
 
 Primeira versão com pacotes. A tag `v0.2.0` ficou sem Release porque dois testes falhavam no Windows; foram corrigidos nesta versão.

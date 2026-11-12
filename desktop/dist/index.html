@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>nasdrive</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#eceefe;background:transparent;overflow:hidden;-webkit-user-select:none;user-select:none}
+.panel{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:28px 30px;text-align:center;
+  background:rgba(14,16,32,.95);border:1px solid rgba(255,255,255,.16);border-radius:14px}
+.logo{width:52px;height:52px;border-radius:15px;background:linear-gradient(#818cf8,#4f46e5);display:grid;place-items:center;margin-bottom:4px}
+.logo i{display:block;width:26px;height:7px;border-radius:3px;background:#fff;margin:2px 0}
+.logo i+i{opacity:.62}
+h1{font-size:15px}
+p{color:#a1a7cc}
+code{font:12px ui-monospace,Menlo,monospace;color:#c7cbef}
+a,button{margin-top:6px;padding:8px 14px;border-radius:9px;border:0;background:#6366f1;color:#fff;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+.ghost{background:transparent;color:#818cf8;margin-top:0}
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="logo" aria-hidden="true"><i></i><i></i></div>
+  <h1 id="title">O nasdrive não arrancou</h1>
+  <p id="text">Não foi possível iniciar o serviço do nasdrive.</p>
+  <a id="go" href="/app/retry">Tentar de novo</a>
+  <button class="ghost" type="button" id="quit">Sair</button>
+</div>
+<script>
+// The desktop app opens this page as index.html#<reason>[&log=<path>] and
+// intercepts the /app/... links (retry, quit, open a web page).
+const p = new URLSearchParams(location.hash.slice(1));
+const log = p.get('log');
+if (p.has('macfuse')) {
+  document.getElementById('title').textContent = 'Falta o macFUSE';
+  document.getElementById('text').textContent = 'O nasdrive precisa do macFUSE 5.5 ou mais recente. Instala-o, autoriza a extensão de sistema quando o macOS pedir, reinicia o Mac e volta a abrir o nasdrive.';
+  const go = document.getElementById('go');
+  go.textContent = 'Abrir o site do macFUSE';
+  go.href = '/app/web?url=' + encodeURIComponent('https://macfuse.github.io/');
+} else if (log) {
+  const t = document.getElementById('text');
+  t.textContent = 'Não foi possível iniciar o serviço do nasdrive. O registo está em ';
+  t.append(Object.assign(document.createElement('code'), { textContent: log }), '.');
+}
+document.getElementById('quit').onclick = () => { location.href = '/app/quit'; };
+</script>
+</body>
+</html>

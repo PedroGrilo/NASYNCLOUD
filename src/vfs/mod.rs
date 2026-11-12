@@ -24,6 +24,7 @@ use anyhow::Context;
 use tokio::sync::{watch, Notify};
 use tokio::task::JoinHandle;
 
+use crate::activity::{Activity, Transfer};
 use crate::config::Config;
 use crate::ranges::RangeSet;
 use crate::remote::{self, Quota, Remote, RemoteError, Version};
@@ -453,6 +454,8 @@ pub struct Vfs {
     commits: AtomicU64,
     durable_at: AtomicU64,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// Recent uploads and downloads, for the interface.
+    activity: Activity,
 }
 
 pub(crate) fn unix_now() -> i64 {
@@ -503,6 +506,7 @@ impl Vfs {
             commits: AtomicU64::new(0),
             durable_at: AtomicU64::new(0),
             tasks: Mutex::new(Vec::new()),
+            activity: Activity::default(),
         });
         vfs.flush(true).await?;
         let mut tasks = Vec::new();
@@ -1356,6 +1360,11 @@ impl Vfs {
             nodes: st.nodes.len() as u64,
             errors: st.nodes.values().filter_map(|n| n.error.as_ref().map(|e| format!("{}: {e}", st.path(n.id).unwrap_or_default()))).take(10).collect(),
         }
+    }
+
+    /// Recent uploads and downloads, most recent first.
+    pub fn transfers(&self) -> Vec<Transfer> {
+        self.activity.list()
     }
 
     /// (total, free) bytes to report for the volume.

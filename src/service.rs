@@ -25,6 +25,9 @@ pub enum Mode {
     Headless,
     /// `nasdrive ui`: opens the browser and keeps running for it.
     App,
+    /// `nasdrive serve`: like `App`, without opening the browser. Started by
+    /// the desktop app, which shows the interface in its own windows.
+    Background,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -327,7 +330,7 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
                 log::info!("interface on http://127.0.0.1:{} (open it with `nasdrive ui`)", ui.port);
                 Some(ui)
             }
-            Err(e) if mode == Mode::App => return Err(e),
+            Err(e) if mode != Mode::Headless => return Err(e),
             Err(e) => {
                 log::warn!("the interface is not available: {e:#}");
                 None

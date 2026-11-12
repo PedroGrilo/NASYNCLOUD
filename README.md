@@ -37,8 +37,8 @@ O endereço é `http://IP_DA_NAS:5005/NomeDaPasta` (o nome é sensível a maiús
 
 Em [Releases](https://github.com/PedroGrilo/Files-on-Demand-UGOS/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
 
-- **macOS** (Apple Silicon): `nasdrive-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o nasdrive para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Corre em segundo plano, sem ícone na Dock. Abrir a app outra vez mostra a interface, e para a fechar usas «Sair» na interface. O registo fica em `~/Library/Logs/nasdrive.log`.
-- **Windows**: `nasdrive-…-windows-x86_64.zip`, com o `nasdrive.exe`. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
+- **macOS** (Apple Silicon): `nasdrive-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o nasdrive para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Fica na barra de menus (ver «A app» abaixo). O registo está em `~/Library/Logs/nasdrive.log`.
+- **Windows**: `nasdrive-…-windows-x86_64.zip`, com o `nasdrive-desktop.exe` (a app, é este que se abre) e o `nasdrive.exe` (o serviço que ela arranca). Têm de ficar na mesma pasta. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
 - **Linux**: não há pacote; compila a partir do código (ver abaixo).
 
 ### Compilar
@@ -64,6 +64,19 @@ cargo build --release      # target\release\nasdrive.exe
 ```
 
 ## 3. Usar
+
+### A app (barra de menus / área de notificação)
+
+É a forma pensada para o dia a dia, como o OneDrive. O ícone fica na barra de menus do Mac (em cima, à direita) ou na área de notificação do Windows (em baixo, à direita). Clicar nele abre um painel com:
+
+- o estado («Tudo atualizado», «A enviar 3 ficheiros», «NAS inacessível», …);
+- o que está a ser transferido, com progresso, e o que foi enviado e descarregado há pouco. Clicar num ficheiro abre-o, e o ícone de pasta mostra onde está;
+- o espaço usado neste computador;
+- a roda dentada, com «Abrir o nasdrive» (a interface completa numa janela), «Definições», «Pausar sincronização» e «Sair».
+
+Na primeira vez abre logo as Definições. A app arranca sozinha o serviço `nasdrive serve` que vem com ela, e o «Sair» espera pelos envios pendentes antes de fechar. Para compilar a app: `cargo build -p nasdrive-desktop` (no macOS, `tools/package-macos.sh` gera o `.app` e o `.dmg`).
+
+### Linha de comandos e browser
 
 ```sh
 nasdrive        # o mesmo que: nasdrive ui

@@ -1,6 +1,7 @@
 name: Release
 
-# Builds the macOS .dmg and the Windows .exe (zip), after the tests.
+# Builds the macOS .dmg and the Windows zip (the tray app, nasdrive-desktop.exe,
+# plus the nasdrive.exe service it runs), after the tests.
 # - Pushing a tag v* (equal to the version in Cargo.toml, e.g. v0.2.1) also
 #   publishes them in a GitHub Release.
 # - "Run workflow" by hand only builds them; they stay as run artifacts.
@@ -51,12 +52,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
-      - run: cargo build --release --locked
+      - run: cargo build --release --locked -p nasdrive -p nasdrive-desktop
       - name: Package
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches.Groups[1].Value
           New-Item -ItemType Directory -Force dist/pkg | Out-Null
+          Copy-Item target/release/nasdrive-desktop.exe dist/pkg/
           Copy-Item target/release/nasdrive.exe dist/pkg/
           Copy-Item packaging/windows/LEIA-ME.txt dist/pkg/
           Compress-Archive -Path dist/pkg/* -DestinationPath "dist/nasdrive-$version-windows-x86_64.zip"

@@ -14,3 +14,4 @@ Registo do porquê das escolhas principais (2026-11).
 10. **Segurança da interface com token + verificação do Host** em vez de login. É uma ferramenta pessoal em localhost; o token impede outras páginas e outros utilizadores de a usar, e a verificação do Host impede DNS rebinding.
 11. **Password no cofre do sistema por omissão.** Ficheiro de definições só com consentimento explícito; `NASDRIVE_PASSWORD` para serviços.
 12. **Idiomas.** Interface e documentação em pt-PT (para o dono); código, logs e CLI em inglês.
+13. **App de bandeja com Tauri, à volta do serviço** (2026-11). Fica como processo separado (`nasdrive serve`) e as páginas são as mesmas que o serviço serve. Assim a app arranca mesmo sem macFUSE (para o dizer), não duplica a interface, e a mesma casca serve o Windows e o macOS. O passo seguinte no Mac é trocar o macFUSE por uma extensão File Provider. A app e as páginas continuam iguais.

@@ -5,6 +5,11 @@ edition = "2021"
 rust-version = "1.90"
 description = "Files on demand para NAS com WebDAV (UGREEN UGOS e companhia): monta a NAS como pasta local, descarrega so o que abres e sincroniza as alteracoes."
 
+# The desktop app (tray / menu bar) lives in desktop/. Plain `cargo build` and
+# `cargo test` here still only build this package.
+[workspace]
+members = ["desktop"]
+
 [features]
 default = ["keyring"]
 # Guarda a password no cofre do sistema (Credential Manager / Keychain / Secret Service).

@@ -15,13 +15,15 @@ desce até ao aviso sobre o nasdrive e carrega em «Abrir mesmo assim».
 
 USAR
 
-Abrir o nasdrive abre a interface no browser. Na primeira vez vai direta às
-Definições: endereço WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador,
-password e a pasta onde a NAS deve aparecer. «Testar ligação» e depois
-«Guardar e ligar».
+O nasdrive vive na barra de menus (canto superior direito), como o
+OneDrive. Clicar no ícone abre um painel com o estado e com o que foi
+enviado e descarregado. Na primeira vez abre logo as Definições: endereço
+WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador, password e a pasta
+onde a NAS deve aparecer. «Testar ligação» e depois «Guardar e ligar».
 
-O nasdrive fica a correr em segundo plano e não aparece na Dock. Para voltar
-à interface, abre a app outra vez. Para o fechar, usa «Sair» na interface.
+No painel: o ícone de pasta abre a NAS no Finder; o da roda dentada tem
+«Abrir o nasdrive» (a janela completa), «Definições», «Pausar» e «Sair».
+Abrir a app outra vez (Finder, Spotlight) também mostra o painel.
 
 Registo: ~/Library/Logs/nasdrive.log
 Mais informação: README.md do projeto.

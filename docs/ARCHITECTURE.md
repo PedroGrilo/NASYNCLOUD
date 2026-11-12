@@ -79,6 +79,12 @@ Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados e
 
 **Mount no macOS.** O `fuser` 0.18 monta com `fuse_mount_compat25` do libfuse2, que no macFUSE 5 falha sempre (-1, errno 0), porque aí o mount só termina depois de o sistema de ficheiros responder ao INIT. Por isso, no macOS, `fuse.rs` abre o dispositivo com `fuse_mount` (libfuse2, não-compat), passa o descritor a `Session::from_fd`, cujo handshake responde ao INIT, e desmonta com `unmount(2)`. Opções: `noappledouble`, `noapplexattr`, `volname`. `NASDRIVE_MACFUSE_BACKEND=fskit` pede o motor FSKit, que neste momento não monta.
 
+## App de bandeja (`desktop/`)
+
+Uma casca Tauri v2 que não tem o motor: arranca o binário `nasdrive` que está ao lado (`nasdrive serve`, o modo `Background` do serviço: interface sem browser) e mostra as páginas que ele serve em 127.0.0.1. São duas: `/panel`, o painel compacto junto ao ícone, e `/`, a interface completa numa janela normal. Lê o porto e o token do `ui.json`, e para saber se o serviço está vivo usa um GET `/api/ping` em HTTP simples, sobre `TcpStream`.
+
+As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar (por exemplo, falta o macFUSE), o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state` e `/api/transfers` a cada 1,5 s enquanto está visível. As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
+
 ## Motor Windows (`win.rs`)
 
 O próprio NTFS guarda a árvore, em placeholders. A identidade de cada placeholder é a `Version` em JSON. O registo da sync root é feito por (endereço, utilizador), com hidratação `Full`, população `Full`, desidratação automática permitida e fixar permitido.

@@ -1,0 +1,20 @@
+[package]
+name = "nasdrive-desktop"
+version = "0.2.1"
+edition = "2021"
+rust-version = "1.90"
+description = "nasdrive na bandeja / barra de menus: o painel e as janelas à volta do serviço nasdrive."
+publish = false
+
+# Deliberately does not depend on the `nasdrive` crate: that one links macFUSE's
+# libfuse on macOS, and this app must start (and say so) when macFUSE is missing.
+# It runs the `nasdrive` binary next to it (`nasdrive serve`) and shows its pages.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"

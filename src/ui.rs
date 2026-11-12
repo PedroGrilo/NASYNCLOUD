@@ -28,6 +28,8 @@ use serde_json::{json, Value};
 use crate::service::{Mode, Service};
 
 const PAGE: &str = include_str!("ui/index.html");
+/// The compact panel the desktop app shows from the tray / menu bar.
+const PANEL: &str = include_str!("ui/panel.html");
 const TOKEN_HEADER: &str = "x-nasdrive-token";
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -259,8 +261,13 @@ impl Handler {
         let method = req.method().clone();
         let path = req.uri().path().to_string();
         let query = req.uri().query().unwrap_or_default().to_string();
-        if method == Method::GET && (path == "/" || path == "/index.html") {
-            let mut resp = respond(StatusCode::OK, "text/html; charset=utf-8", PAGE);
+        let page = match path.as_str() {
+            "/" | "/index.html" => Some(PAGE),
+            "/panel" => Some(PANEL),
+            _ => None,
+        };
+        if let (true, Some(page)) = (method == Method::GET, page) {
+            let mut resp = respond(StatusCode::OK, "text/html; charset=utf-8", page);
             resp.headers_mut().insert("content-security-policy", HeaderValue::from_static(CSP));
             resp.headers_mut().insert("x-frame-options", HeaderValue::from_static("DENY"));
             return Ok(resp);
@@ -312,6 +319,10 @@ impl Handler {
                 tokio::spawn(async move { s.stop_mount().await });
                 ok
             }
+            ("GET", "/api/transfers") => match svc.mounted() {
+                Ok(m) => json!({ "transfers": m.transfers() }),
+                Err(_) => json!({ "transfers": [] }),
+            },
             ("GET", "/api/browse") => {
                 let rel = clean_rel(&param(&query, "path").unwrap_or_default())?;
                 serde_json::to_value(svc.mounted()?.browse(&rel).await?)?

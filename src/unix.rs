@@ -77,6 +77,11 @@ impl Mounted {
         self.vfs.shutdown().await;
     }
 
+    /// Recent uploads and downloads, most recent first.
+    pub fn transfers(&self) -> Vec<nasdrive::activity::Transfer> {
+        self.vfs.transfers()
+    }
+
     pub fn info(&self) -> MountInfo {
         let i = self.vfs.info();
         MountInfo { online: i.online, pending_uploads: i.pending_uploads, uploading: i.uploading, cache_bytes: Some(i.cache_bytes), cache_max: Some(i.cache_max), errors: i.errors }

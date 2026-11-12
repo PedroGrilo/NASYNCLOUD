@@ -802,6 +802,11 @@ impl Mounted {
         }
     }
 
+    /// Recent uploads and downloads. Not recorded by the Windows engine yet.
+    pub fn transfers(&self) -> Vec<nasdrive::activity::Transfer> {
+        Vec::new()
+    }
+
     pub fn info(&self) -> MountInfo {
         let e = &self.engine;
         let errors = e.failures.lock().unwrap().iter().take(10).map(|(p, (n, msg))| format!("{}: {msg} ({n}x)", e.rel(p).unwrap_or_default())).collect();

@@ -9,19 +9,24 @@ num disco NTFS.
 
 PRIMEIRA VEZ
 
-O nasdrive.exe não está assinado, por isso o Windows pode mostrar «O Windows
-protegeu o seu PC». Carrega em «Mais informações» e depois em «Executar
-mesmo assim».
+Os executáveis não estão assinados, por isso o Windows pode mostrar «O
+Windows protegeu o seu PC». Carrega em «Mais informações» e depois em
+«Executar mesmo assim».
 
 USAR
 
-Põe o nasdrive.exe numa pasta tua (por exemplo, Documentos\nasdrive) e faz
-duplo clique. Abre a interface no browser. Na primeira vez vai direta às
-Definições: endereço WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador,
-password e a pasta onde a NAS deve aparecer.
+Põe os dois ficheiros numa pasta tua (por exemplo, Documentos\nasdrive) e
+mantém-nos juntos: o nasdrive-desktop.exe é a app, o nasdrive.exe é o
+serviço que ela arranca. Abre o nasdrive-desktop.exe.
 
-A janela de consola que aparece é o próprio nasdrive: fechá-la para-o.
-Também podes usar «Sair» na interface.
+O nasdrive vive na área de notificação (canto inferior direito), como o
+OneDrive. Clicar no ícone abre um painel com o estado e com o que foi
+enviado e descarregado. Na primeira vez abre logo as Definições: endereço
+WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador, password e a pasta
+onde a NAS deve aparecer. Para sair: roda dentada do painel → «Sair do
+nasdrive», ou clique direito no ícone → «Sair do nasdrive».
+
+Precisa do WebView2, que já vem com o Windows 10 e 11 atualizados.
 
 Para arrancar com o Windows: no Agendador de Tarefas, cria uma tarefa
-«Ao iniciar sessão» que corre «nasdrive.exe mount».
+«Ao iniciar sessão» que corre o nasdrive-desktop.exe.

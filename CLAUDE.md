@@ -43,6 +43,8 @@ src/
   service.rs        serviço: config + ciclo de vida do mount + run() (usado por `mount` e `ui`)
   ui.rs             servidor HTTP local (hyper) + API JSON + abrir browser
   ui/index.html     a interface inteira (HTML+CSS+JS), embutida com include_str!
+  ui/panel.html     o painel compacto da app (estado + transferências), servido em /panel
+  activity.rs       registo das transferências recentes (junta as do mesmo ficheiro), API /api/transfers
   logging.rs        logger próprio: stderr + últimas 1000 linhas para a interface
   fuse.rs           adaptador FUSE (fuser 0.18)                                 [unix]
   unix.rs           Mounted para Linux/macOS + comandos CLI via xattrs          [unix]
@@ -54,6 +56,10 @@ tests/
 tools/
   demo.sh           NAS falsa com conteúdo realista + mount + interface em :18731
   screenshot.py     capturas da interface (QtWebEngine), usado para docs/screenshots
+desktop/          a app da bandeja / barra de menus (Tauri v2), crate `nasdrive-desktop` do workspace
+  src/main.rs       arranca `nasdrive serve` (o binário ao lado), ícone, painel junto ao ícone, janela principal
+  dist/index.html   página local de erro (falta o macFUSE, o serviço não arrancou)
+  icons/            ícones da app e da bandeja (tray-template.png = símbolo monocromático do macOS)
 examples/
   fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone, p.ex. no macOS
 tools/package-macos.sh   gera dist/nasdrive.app e dist/nasdrive-<versão>-macos-<arch>.dmg (assinatura ad-hoc)
@@ -100,6 +106,8 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **macOS, mount**: o `fuse_mount_compat25` que o `fuser` 0.18 usa falha sempre no macFUSE 5 (-1, errno 0). `fuse.rs` monta com `fuse_mount` + `Session::from_fd` (módulo `macfuse`) e desmonta com `unmount(2)`. Não voltar a `Session::new` no macOS.
 - **macOS, alterações remotas**: o macFUSE não repete `lookup` quando o nome expira. Por isso `getattr`/`open` usam `Vfs::getattr_fresh`, que relê a pasta-mãe, e o `open` devolve `FOPEN_PURGE_UBC`. Sem isto, um ficheiro alterado na NAS fica com o conteúdo antigo.
 - **macOS, `st_blocks`**: o macFUSE ignora-o e calcula-o a partir do tamanho, por isso o `du` não serve no macOS (o e2e salta essa verificação).
+- **App (desktop/)**: não depende da crate `nasdrive` de propósito (ligaria ao libfuse e não arrancaria sem o macFUSE para o dizer). Fala com o serviço por HTTP em 127.0.0.1 (token do `ui.json`). As páginas pedem coisas à app navegando para `/app/<ação>` (main, hide, quit, restart, web), que o `on_navigation` interceta: assim não é preciso IPC do Tauri em páginas servidas por outro processo. O painel é uma janela sem moldura, transparente e sempre por cima, que se esconde ao perder o foco; o `hidden_at` evita que o mesmo clique no ícone o volte a abrir.
+- **App, compilar para Windows a partir do Mac**: falha no `tauri-build` (precisa de `llvm-rc` para os recursos). Fica para o workflow (runner Windows).
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
 - **macOS, aviso «fuse: forking a threaded process is unsafe»**: vem do `fuse_mount` do libfuse, que lança o `mount_macfuse` a partir de um processo com threads. É inofensivo (o `malloc` do macOS tem handlers de `fork`), mas convém não pôr trabalho entre o `fork` e o `exec`.
 - **App macOS**: `LSUIElement` (sem Dock), por isso a única forma normal de sair é o botão «Sair» da interface (`/api/quit`). Como a assinatura é ad-hoc, o Porta-chaves pode voltar a pedir autorização para a password depois de cada atualização da app.

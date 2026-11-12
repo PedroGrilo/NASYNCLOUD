@@ -4,7 +4,7 @@
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>pt-PT</string>
   <key>CFBundleDisplayName</key><string>nasdrive</string>
-  <key>CFBundleExecutable</key><string>nasdrive-app</string>
+  <key>CFBundleExecutable</key><string>nasdrive-desktop</string>
   <key>CFBundleIconFile</key><string>nasdrive</string>
   <key>CFBundleIdentifier</key><string>io.github.pedrogrilo.nasdrive</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -13,7 +13,8 @@
   <key>CFBundleShortVersionString</key><string>@VERSION@</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
-  <!-- Runs in the background: no Dock icon or menu bar. "Sair" in the interface quits it. -->
+  <!-- Lives in the menu bar: no Dock icon (it appears while the full window is open). -->
   <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>

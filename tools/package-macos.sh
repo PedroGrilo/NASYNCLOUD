@@ -1,6 +1,7 @@
 #!/bin/bash
-# Builds dist/nasdrive.app and dist/nasdrive-<version>-macos-<arch>.dmg. macOS only;
-# needs macFUSE installed (nasdrive links against its libfuse).
+# Builds dist/nasdrive.app (the menu bar app, desktop/, with the nasdrive service
+# next to it) and dist/nasdrive-<version>-macos-<arch>.dmg. macOS only; building
+# needs macFUSE installed (the service links against its libfuse).
 # The app is ad-hoc signed, not notarized: see packaging/macos/LEIA-ME.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,17 +14,18 @@ OUT=dist
 APP=$OUT/nasdrive.app
 DMG=$OUT/nasdrive-$VERSION-macos-$ARCH.dmg
 
-cargo build --release --locked
+cargo build --release --locked -p nasdrive -p nasdrive-desktop
 
 rm -rf "$APP" "$OUT/dmg" "$DMG"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET_DIR/release/nasdrive" "$APP/Contents/MacOS/nasdrive"
-cp packaging/macos/nasdrive-app "$APP/Contents/MacOS/nasdrive-app"
-chmod 755 "$APP/Contents/MacOS/nasdrive" "$APP/Contents/MacOS/nasdrive-app"
+cp "$TARGET_DIR/release/nasdrive-desktop" "$APP/Contents/MacOS/nasdrive-desktop"
+chmod 755 "$APP/Contents/MacOS/nasdrive" "$APP/Contents/MacOS/nasdrive-desktop"
 cp assets/nasdrive.icns "$APP/Contents/Resources/nasdrive.icns"
 sed "s/@VERSION@/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --force --sign - "$APP/Contents/MacOS/nasdrive"
+codesign --force --sign - "$APP/Contents/MacOS/nasdrive-desktop"
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
 
