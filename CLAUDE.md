@@ -14,7 +14,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v0.2.0, 2026-11-12)
+## Estado atual (v0.2.1, 2026-11-12)
 
 | Parte | Estado |
 |---|---|
@@ -60,7 +60,7 @@ tools/package-macos.sh   gera dist/nasdrive.app e dist/nasdrive-<versão>-macos-
 packaging/macos/  Info.plist (LSUIElement), lançador nasdrive-app (verifica o macFUSE, regista em ~/Library/Logs), LEIA-ME
 packaging/windows/LEIA-ME.txt   vai no zip com o nasdrive.exe
 assets/           icon.svg (fonte) e nasdrive.icns (gerado a partir dele, ver «Lançar uma versão»)
-.github/workflows/release.yml   tag v* → testes + e2e Linux → .dmg, .exe (zip), binário Linux → GitHub Release
+.github/workflows/release.yml   tag v* → testes no macOS e no Windows → .dmg e .exe (zip) → GitHub Release (sem Linux, a pedido do Pedro)
 ```
 
 `Mounted` tem a mesma API nas duas plataformas (`start`, `stop`, `wait_ended`, `info`, `browse`, `pin`, `free`, `refresh`); `service.rs` só fala com isso.
@@ -80,7 +80,8 @@ tools/demo.sh                                                # demo em http://12
 
 1. Subir `version` no `Cargo.toml` (e o `Cargo.lock` com `cargo build`) e mudar «Por lançar» no CHANGELOG para a versão e a data.
 2. Commit, depois `git tag vX.Y.Z && git push origin main vX.Y.Z`. A tag tem de ser igual à versão do `Cargo.toml`, senão o workflow falha logo.
-3. O `release.yml` corre clippy, testes e e2e no Linux e testes no macOS e no Windows. Depois gera os três pacotes e publica a Release. Em «Run workflow» (manual) só gera os pacotes, que ficam como artifacts da execução.
+3. O `release.yml` corre os testes no macOS e no Windows, gera o `.dmg` e o zip com o `.exe` e publica a Release. Em «Run workflow» (manual) só gera os pacotes, que ficam como artifacts da execução. O Linux não está no workflow: clippy, testes e e2e no Linux só correm à mão. Na última vez que correram no GitHub (Ubuntu 26.04) deram clippy limpo, testes OK e e2e 63/64, e a falha já foi corrigida no teste.
+4. As tags publicadas não se movem (o auto mode bloqueia `push -f`). Se uma tag falhar, corrige-se e lança-se a versão seguinte. Foi o que aconteceu à `v0.2.0`, que ficou sem Release.
 
 O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PNG de 1024 px com fundo transparente (o Quick Look/`qlmanage` mete fundo branco, por isso usa um script Swift com `NSImage` + `NSBitmapImageRep`), cria o iconset com `sips -z` (16–512, @1x e @2x) e corre `iconutil -c icns`.
 

@@ -35,11 +35,11 @@ O endereço é `http://IP_DA_NAS:5005/NomeDaPasta` (o nome é sensível a maiús
 
 ### Pronto a usar
 
-Em [Releases](https://github.com/PedroGrilo/Files-on-Demand-UGOS/releases) há uma versão para cada sistema. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
+Em [Releases](https://github.com/PedroGrilo/Files-on-Demand-UGOS/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
 
 - **macOS** (Apple Silicon): `nasdrive-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o nasdrive para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Corre em segundo plano, sem ícone na Dock. Abrir a app outra vez mostra a interface, e para a fechar usas «Sair» na interface. O registo fica em `~/Library/Logs/nasdrive.log`.
 - **Windows**: `nasdrive-…-windows-x86_64.zip`, com o `nasdrive.exe`. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
-- **Linux** (x86_64): `nasdrive-…-linux-x86_64.tar.gz`, com o binário. Precisa do pacote `fuse3`.
+- **Linux**: não há pacote; compila a partir do código (ver abaixo).
 
 ### Compilar
 
