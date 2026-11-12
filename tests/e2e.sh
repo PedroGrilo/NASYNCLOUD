@@ -161,7 +161,12 @@ rm $NAS/Docs/chegou-depois.txt; sleep 1.5; waitfor 8 test ! -e $MNT/Docs/chegou-
 echo "== offline"
 stop_nas; sleep 0.5
 check "pinned file readable offline" grep -q "alterado no NAS" $MNT/Docs/sub/nota.txt
-err=$(dd if=$MNT/Media/filme.mkv of=/dev/null bs=4k count=1 2>&1); echo "$err" | grep -qi "host is down" && ok "online-only file fails cleanly: Host is down" || bad "uncached read offline" "$err"
+err=$(dd if=$MNT/Media/filme.mkv of=/dev/null bs=4k count=1 2>&1)
+# nasdrive answers EHOSTDOWN; newer Linux kernels turn read errors coming through
+# the page cache into EIO. Accept that only if nasdrive itself logged no I/O error.
+if echo "$err" | grep -qi "host is down"; then ok "online-only file fails cleanly: Host is down"
+elif echo "$err" | grep -qi "input/output error" && ! grep -q "I/O error" $W/nasdrive.log; then ok "online-only file fails cleanly (nasdrive: Host is down; this kernel reports EIO)"
+else bad "uncached read offline" "$err"; fi
 echo "escrito offline" > $MNT/Docs/offline.txt && mkdir $MNT/Docs/pasta-offline && echo x > $MNT/Docs/pasta-offline/x && ok "can create files and folders offline" || bad "offline create"
 rm $MNT/Docs/numeros.txt 2>/dev/null && bad "offline delete of a synced file should be refused" || ok "offline delete of a synced file is refused"
 nd status | grep -q UNREACHABLE && ok "status reports offline, $(nd status | grep pending | sed 's/pending: *//')" || bad "offline status" "$(nd status)"

@@ -23,8 +23,11 @@ async fn read_all(dav: &WebDav, path: &str, start: u64, end: Option<u64>) -> Vec
 
 #[tokio::test]
 async fn list_stat_and_names_with_odd_characters() {
+    // The test NAS keeps its files on the local disk, and Windows refuses `?`
+    // in file names; `%` also needs escaping in URLs, so it covers the same.
+    let odd = if cfg!(windows) { "a & b #1 100%.txt" } else { "a & b #1?.txt" };
     let srv = TestServer::start().await;
-    srv.write("Férias 2026/a & b #1?.txt", b"hello");
+    srv.write(&format!("Férias 2026/{odd}"), b"hello");
     srv.write("Férias 2026/sub/x", b"");
     srv.write("top.bin", &pattern(1000, 1));
     let dav = client(&srv.url);
@@ -36,10 +39,10 @@ async fn list_stat_and_names_with_odd_characters() {
 
     let mut sub = dav.list("Férias 2026").await.unwrap();
     sub.sort_by(|a, b| a.name.cmp(&b.name));
-    assert_eq!(sub.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), vec!["a & b #1?.txt", "sub"]);
+    assert_eq!(sub.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), vec![odd, "sub"]);
 
-    let st = dav.stat("Férias 2026/a & b #1?.txt").await.unwrap().unwrap();
-    assert_eq!((st.name.as_str(), st.is_dir, st.version.size), ("a & b #1?.txt", false, 5));
+    let st = dav.stat(&format!("Férias 2026/{odd}")).await.unwrap().unwrap();
+    assert_eq!((st.name.as_str(), st.is_dir, st.version.size), (odd, false, 5));
     assert!(dav.stat("Férias 2026").await.unwrap().unwrap().is_dir);
     assert!(dav.stat("nope").await.unwrap().is_none());
     assert!(matches!(dav.list("nope").await, Err(RemoteError::NotFound)));
@@ -128,11 +131,25 @@ async fn uploads_send_content_length() {
         let (mut sock, _) = listener.accept().await.unwrap();
         let mut seen = Vec::new();
         let mut buf = [0u8; 4096];
-        while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+        let head_end = loop {
+            if let Some(i) = seen.windows(4).position(|w| w == b"\r\n\r\n") {
+                break i + 4;
+            }
             let n = sock.read(&mut buf).await.unwrap();
+            assert!(n > 0, "connection closed before the end of the headers");
+            seen.extend_from_slice(&buf[..n]);
+        };
+        let head = String::from_utf8_lossy(&seen[..head_end]).to_ascii_lowercase();
+        // Read the whole body before answering: closing a socket with unread
+        // data makes Windows reset the connection before the client sees the reply.
+        let len: usize = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        while seen.len() < head_end + len {
+            let n = sock.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
             seen.extend_from_slice(&buf[..n]);
         }
-        let head = String::from_utf8_lossy(&seen).to_ascii_lowercase();
         sock.write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
         head
     });
