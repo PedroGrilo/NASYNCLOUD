@@ -1,198 +1,150 @@
-# NASYNCLOUD
+<p align="center"><img src="assets/icon.svg" width="112" alt=""></p>
 
-**A tua NAS como nuvem.** Ficheiros a pedido ("Files On-Demand") para uma NAS com WebDAV. Foi pensado para a UGREEN (UGOS), mas não tem nada específico dela. A NAS aparece como uma pasta normal: vês tudo o que lá está, mas só é descarregado o que abres.
+<h1 align="center">NASYNCLOUD</h1>
 
-![Estado](docs/screenshots/estado.png)
+<p align="center"><b>Your NAS as your own cloud drive.</b><br>
+See every file on your NAS from your Mac or PC. Only the files you open take up space.</p>
 
-- **Navegar** não descarrega nada; os tamanhos e datas são os da NAS.
-- **Abrir um ficheiro** descarrega só a parte lida. Um vídeo de 10 GB começa logo a dar, e saltar para o meio não puxa o início.
-- **Manter offline** um ficheiro ou pasta descarrega-o todo e mantém-no atualizado, incluindo ficheiros novos que apareçam na NAS.
-- **Libertar espaço** apaga a cópia local mas deixa o ficheiro visível.
-- **Alterações locais** (ficheiros novos, edições, pastas) vão primeiro para o disco e sobem em segundo plano. Sem NAS, ficam em fila e seguem quando ela voltar, mesmo depois de reiniciar.
-- **Uploads** vão para um nome temporário e só no fim substituem o original, por isso uma falha a meio nunca deixa um ficheiro cortado na NAS.
-- **Conflitos**: se um ficheiro mudou cá e na NAS, ficam os dois. O teu passa a `nome (conflict 2026-11-12 153012).ext`.
-- **Interface** no browser para configurar, ver o estado, gerir o que fica offline e acompanhar a atividade.
+<p align="center"><a href="https://github.com/PedroGrilo/NASYNCLOUD/releases/latest"><b>⬇︎ Download the latest version</b></a></p>
 
-## Estado por plataforma
+---
 
-| | Motor | Testado |
+NASYNCLOUD works like OneDrive, Dropbox or iCloud Drive, but your files live on **your** NAS at home instead of on someone else's servers. It was made with UGREEN NAS devices in mind and works with any NAS that supports WebDAV.
+
+> The app's interface is in Portuguese for now. This guide shows each label followed by its meaning in English.
+
+<p align="center"><img src="docs/screenshots/panel.png" width="380" alt="The NASYNCLOUD panel, opened from the menu bar icon, showing the sync status and recently uploaded and downloaded files"></p>
+
+## What it does for you
+
+- 📁 **See everything on your NAS** in a regular folder on your computer, without using disk space.
+- ⚡ **Open a file and it's there right away.** A 10 GB movie starts playing at once, without waiting for the whole file.
+- ☁️ **Save and forget.** New and changed files are uploaded to the NAS in the background.
+- 📌 **Keep offline**: choose the folders you always want with you, even without a connection.
+- 🧹 **Free up space**: remove the local copy of a file. It stays on the NAS and in the folder.
+- ✈️ **NAS out of reach?** Keep working with what's already on your computer. Your changes are sent when the NAS is back, even if you restarted the computer in the meantime.
+- 🛟 **Never lose work.** If a file changes here and on the NAS at the same time, you keep both versions.
+- 🔄 **Updates itself.** When a new version comes out, you get a notification and install it with one click.
+
+## What you need
+
+- A **NAS with WebDAV**: UGREEN (UGOS), Synology, QNAP, TrueNAS, Nextcloud and others.
+- A **Mac with Apple silicon** (M1 or later) or a **PC with Windows 10 or 11**.
+- To be on the same network as your NAS (at home). To use it while away, see the [FAQ](#faq).
+
+## Install in 3 steps
+
+### 1. Turn on WebDAV on your NAS
+
+On a **UGREEN NAS (UGOS)**: open **Control Panel → File Service → WebDAV**, enable WebDAV and click **Apply**. Check that your user can read and write the shared folder you want to use.
+
+On other NAS devices, look for "WebDAV" in the file service or file sharing settings.
+
+### 2. Install NASYNCLOUD
+
+**On a Mac**
+1. First install [macFUSE](https://macfuse.github.io/), which lets macOS show your NAS as a folder. When macOS asks, allow it in **System Settings → Privacy & Security**, then restart your Mac.
+2. Download `NASYNCLOUD-…-macos-arm64.dmg` from [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases/latest), open it and drag NASYNCLOUD to **Applications**.
+3. The first time you open it, macOS says it can't verify the app (it isn't signed by Apple yet). Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
+**On Windows** *(experimental)*
+1. Download `NASYNCLOUD-…-windows-x64-setup.exe` from [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases/latest) and run it. It doesn't need administrator rights.
+2. If you see "Windows protected your PC", click **More info → Run anyway**.
+
+### 3. Connect to your NAS
+
+The first time, NASYNCLOUD opens **Definições** (Settings). Fill in:
+
+| Field | What to enter | Example |
 |---|---|---|
-| Linux | FUSE | Sim: 28 testes automáticos + 64 verificações num mount real, incluindo a interface |
-| macOS | FUSE (precisa do macFUSE) | Sim: 28 testes automáticos + 63 verificações num mount real, incluindo a interface (macOS 27, Apple Silicon, macFUSE 5.5) |
-| Windows | Cloud Files API (a do OneDrive) | Só compila; nunca correu |
+| **Endereço WebDAV** (WebDAV address) | `http://` + your NAS's IP address + `:5005/` + the shared folder's name | `http://192.168.1.50:5005/Shared` |
+| **Utilizador** / **Password** (User / Password) | the ones you use to sign in to your NAS | |
+| **Pasta onde a NAS aparece** (Folder where the NAS appears) | where you want to see your NAS | `NAS`, in your home folder |
 
-Também **nunca foi testado contra o WebDAV da UGOS em si**, só contra o do rclone e o `dav-server`. Experimenta primeiro numa pasta partilhada de teste.
+Click **Testar ligação** (Test connection), then **Guardar e ligar** (Save and connect). That's it: your NAS folder shows up in Finder or File Explorer.
 
-## 1. Preparar a NAS
+> Folder names are case-sensitive (`Photos` is not `photos`). You can find your NAS's IP address in the UGREEN app or on your router's settings page.
 
-1. Na UGOS: **Painel de Controlo → Serviço de Ficheiros → WebDAV**, ativar e **Aplicar**. Portas por omissão: `5005` (HTTP) e `5006` (HTTPS).
-2. Nas **Definições avançadas** do WebDAV, ativa "Remover o limite de 1024 caracteres no caminho" se tiveres pastas muito fundas.
-3. Confirma que o teu utilizador tem leitura/escrita na pasta partilhada.
+## Everyday use
 
-O endereço é `http://IP_DA_NAS:5005/NomeDaPasta` (o nome é sensível a maiúsculas). Em casa o HTTP chega. Fora de casa usa HTTPS através de uma VPN (Tailscale, WireGuard) em vez de abrir portas no router.
+**The icon.** NASYNCLOUD lives in the **menu bar** on a Mac (top right) or in the **notification area** on Windows (bottom right). Click it to open the panel:
 
-## 2. Instalar
+- **the status**: «Tudo atualizado» (Up to date), «A enviar 3 ficheiros» (Uploading 3 files), «NAS inacessível» (NAS unreachable)…
+- **what's being transferred**, with progress, and what was recently uploaded («Enviado») and downloaded («Descarregado»). Click a file to open it;
+- **how much space** your NAS files take on this computer;
+- the **folder** button, which opens your NAS in Finder or File Explorer, and the **gear** menu: **Abrir o NASYNCLOUD** (open the full window), **Definições** (Settings), **Pausar** (Pause) and **Sair** (Quit).
 
-### Pronto a usar
+**The folder.** Use it like any other folder: open, copy, drag, delete, create folders. Everything you do reaches your NAS.
 
-Em [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
+<p align="center"><img src="docs/screenshots/files.png" width="760" alt="The NASYNCLOUD window listing the folders on the NAS and how much of each is on this computer"></p>
 
-- **macOS** (Apple Silicon): `NASYNCLOUD-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o NASYNCLOUD para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Fica na barra de menus (ver «A app» abaixo). O registo está em `~/Library/Logs/nasyncloud.log`.
-- **Windows**: `NASYNCLOUD-…-windows-x64-setup.exe`, um instalador que não pede administrador. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
-- **Linux**: não há pacote; compila a partir do código (ver abaixo).
+**Choose what stays on your computer.** In **Abrir o NASYNCLOUD → Ficheiros** (Files) you can see the state of every file and choose, per file or per folder:
 
-### Compilar
+| State | Meaning |
+|---|---|
+| **Só na NAS** (Only on the NAS) | takes no space here; it's downloaded when you open it |
+| **Parcialmente aqui** (Partly here) | you opened part of it, like a video you started watching |
+| **Neste computador** (On this computer) | fully here; opens even without a connection |
+| **Por enviar** (Waiting to upload) | you changed it and it hasn't reached the NAS yet |
 
-Precisas do Rust 1.90 ou mais recente (`rustup`).
+- **Manter offline** (Keep offline): downloads everything and keeps it up to date, including new files that show up on the NAS.
+- **Libertar espaço** (Free up space): removes the copy on this computer and leaves the file visible in the folder.
 
-**Linux** (Debian/Ubuntu):
-```sh
-sudo apt install fuse3 pkg-config libssl-dev
-cargo build --release      # binário em target/release/nasyncloud
-```
+On Windows you can also do this from File Explorer: right-click → **Always keep on this device** or **Free up space**.
 
-**macOS**: instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente e segue as instruções dele para permitir a extensão de sistema. O NASYNCLOUD usa o motor clássico (kext) do macFUSE, por isso a extensão tem de estar autorizada e é preciso reiniciar. Depois:
-```sh
-brew install pkg-config
-cargo build --release
-tools/package-macos.sh     # opcional: dist/NASYNCLOUD.app e o .dmg
-```
+**Quitting.** Use **Sair do NASYNCLOUD** (Quit NASYNCLOUD) in the gear menu. NASYNCLOUD only closes after it has uploaded anything still pending.
 
-**Windows** (toolchain MSVC, Windows 10 1709 ou mais recente, pasta num disco NTFS):
-```powershell
-cargo build --release      # target\release\nasyncloud.exe
-```
+## Updates
 
-## 3. Usar
+NASYNCLOUD checks for new versions on its own. When one is available, you get a **notification** and the panel shows a message: click **Atualizar agora** (Update now) and it installs the update and opens again. You can also check by hand: right-click the icon → **Procurar atualizações** (Check for updates).
 
-### A app (barra de menus / área de notificação)
+Updates are signed: NASYNCLOUD only installs versions published by this project.
 
-É a forma pensada para o dia a dia, como o OneDrive. O ícone fica na barra de menus do Mac (em cima, à direita) ou na área de notificação do Windows (em baixo, à direita). Clicar nele abre um painel com:
+## FAQ
 
-- o estado («Tudo atualizado», «A enviar 3 ficheiros», «NAS inacessível», …);
-- o que está a ser transferido, com progresso, e o que foi enviado e descarregado há pouco. Clicar num ficheiro abre-o, e o ícone de pasta mostra onde está;
-- o espaço usado neste computador;
-- a roda dentada, com «Abrir o NASYNCLOUD» (a interface completa numa janela), «Definições», «Pausar sincronização» e «Sair».
+**My Mac says it can't open NASYNCLOUD.**
+That's because the app isn't signed by Apple yet. Go to **System Settings → Privacy & Security** and click **Open Anyway**. You only need to do this once.
 
-Na primeira vez abre logo as Definições. A app arranca sozinha o serviço `nasyncloud serve` que vem com ela, e o «Sair» espera pelos envios pendentes antes de fechar. Para compilar a app: `cargo build -p nasyncloud-desktop` (no macOS, `tools/package-macos.sh` gera o `.app` e o `.dmg`).
+**I see «Falta o macFUSE» (macFUSE is missing).**
+Install [macFUSE](https://macfuse.github.io/), allow it in **Privacy & Security**, restart your Mac and open NASYNCLOUD again.
 
-### Atualizações automáticas
+**After an update, my Mac asks to use the Keychain.**
+That's expected. NASYNCLOUD keeps your NAS password in the Keychain, and macOS asks again after the app changes. Choose **Always Allow**.
 
-A app verifica se há versão nova 20 segundos depois de arrancar e depois a cada 6 horas, e também quando escolhes «Procurar atualizações» no menu do ícone (clique direito). Quando há uma versão nova, mostra uma notificação e um aviso no painel. «Atualizar agora» descarrega a versão e confirma a assinatura. Depois para o serviço, à espera dos envios pendentes, instala e volta a abrir. As versões vêm das [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases) (`latest.json`) e vão assinadas: a app recusa tudo o que não tenha sido assinado pela chave do projeto.
+**I can't connect to my NAS.**
+Check that:
+- WebDAV is turned on on your NAS;
+- the address has the right IP and the port `5005`;
+- the folder name is spelled exactly as on the NAS;
+- your user has access to that folder.
 
-### Linha de comandos e browser
+The **Testar ligação** (Test connection) button tells you what's wrong.
 
-```sh
-nasyncloud        # o mesmo que: nasyncloud ui
-```
+**Can I use it away from home?**
+Yes, but don't open ports on your router. Use a VPN such as [Tailscale](https://tailscale.com/) or WireGuard, which puts you "at home" wherever you are. Over a VPN, use the address `https://…:5006/…`.
 
-Abre a interface no browser e arranca o NASYNCLOUD, se ainda não estiver a correr. Na primeira vez vai direta às **Definições**: endereço WebDAV, utilizador, password e a pasta local onde a NAS deve aparecer. **Testar ligação** confirma tudo antes de guardar e **Guardar e ligar** monta a NAS. Se usares HTTPS com o certificado que vem com a UGOS, o teste avisa que não o consegue verificar e oferece-se para confiar nele.
+**Do my files go to the internet?**
+No. They only travel between your computer and your NAS. Your password is kept in the system's secure storage (Keychain on a Mac, Credential Manager on Windows), and the NASYNCLOUD window can only be opened from your own computer.
 
-A interface tem quatro secções:
+**Something went wrong. Where can I see what happened?**
+In **Abrir o NASYNCLOUD → Atividade** (Activity). The full log is in `~/Library/Logs/nasyncloud.log` on a Mac and in `%LOCALAPPDATA%\nasyncloud\data\nasyncloud.log` on Windows. If you open an [issue](https://github.com/PedroGrilo/NASYNCLOUD/issues), please include it.
 
-- **Estado**: ligação, espaço usado, o que falta enviar, problemas e atividade recente, com botões para abrir a pasta e para parar/iniciar. O botão «Sair», em baixo na barra lateral, desmonta a pasta e encerra o NASYNCLOUD, mas só depois de terminar os envios pendentes.
-- **Ficheiros**: navegas na NAS e vês o estado de cada ficheiro (só na NAS, parcialmente aqui, neste computador, por enviar). Manter offline, libertar espaço e abrir, por ficheiro ou por pasta.
-- **Atividade**: o registo do que o NASYNCLOUD fez.
-- **Definições**: a ligação e as opções avançadas.
+## Project status
 
-![Ficheiros](docs/screenshots/ficheiros.png)
+| | |
+|---|---|
+| **macOS** (Apple silicon) | Works and is tested |
+| **Windows** | Experimental: builds and passes the tests, but hasn't been used much yet |
+| **UGREEN (UGOS)** | Already connects to a real UGREEN NAS. Start with a test folder |
+| **Linux** | Command line only (see the [advanced guide](docs/AVANCADO.md)) |
 
-O NASYNCLOUD continua a correr enquanto o terminal (ou o serviço) estiver aberto; fechar o separador do browser não o para. Voltar a correr `nasyncloud` só reabre a interface. No Windows, um duplo clique no `nasyncloud.exe` faz o mesmo; a janela de consola que aparece é o próprio NASYNCLOUD e fechá-la para-o.
+Not there yet: status icons in Finder, and deleting or renaming files that are on the NAS while it's offline (creating and editing files works).
 
-A password fica no cofre do sistema (Gestor de Credenciais no Windows, Porta-chaves no macOS, Secret Service no Linux). Se não houver cofre, a interface pergunta se a pode guardar no ficheiro de definições. Também podes usar a variável `NASYNCLOUD_PASSWORD`.
+## Going further
 
-### Sem browser
+These documents are in Portuguese:
 
-```sh
-nasyncloud setup     # as mesmas perguntas, no terminal
-nasyncloud mount     # monta e sincroniza até Ctrl+C; a interface fica disponível
-```
-
-Com o `mount` a correr, `nasyncloud ui` abre a interface a qualquer momento.
-
-### Linux e macOS na linha de comandos
-
-A pasta comporta-se como qualquer outra (`cp`, `mv`, editores, `rsync`...). Para gerir o que fica local sem a interface:
-
-```sh
-nasyncloud status                 # estado geral: ligação, cache, uploads pendentes
-nasyncloud ls ~/NAS/Fotos         # estado de cada entrada
-nasyncloud pin ~/NAS/Documentos   # manter offline
-nasyncloud unpin ~/NAS/Documentos
-nasyncloud free ~/NAS/Videos      # libertar espaço já
-nasyncloud refresh ~/NAS/Fotos    # reler da NAS agora
-nasyncloud unmount                # se uma sessão anterior ficou pendurada
-```
-
-No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o macFUSE não deixa mudar isso): usa `nasyncloud ls` ou `nasyncloud status`.
-
-### Windows
-
-Para além da interface, tudo funciona no Explorador: a pasta aparece no painel lateral com os ícones de nuvem (só online) e visto verde (no disco). Clique direito → **Manter sempre neste dispositivo** ou **Libertar espaço**. O Sensor de Armazenamento também pode libertar espaço sozinho. Para remover o registo da pasta no Windows (os ficheiros na NAS não são tocados): `nasyncloud unregister`.
-
-## Arrancar automaticamente
-
-Corre `nasyncloud mount` no arranque; a interface abre-se depois com `nasyncloud ui`.
-
-**Linux (systemd)**: `~/.config/systemd/user/nasyncloud.service`
-```ini
-[Unit]
-Description=nasyncloud
-After=network-online.target
-
-[Service]
-ExecStart=%h/.cargo/bin/nasyncloud mount
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-e depois `systemctl --user enable --now nasyncloud`.
-
-**Windows**: no Agendador de Tarefas, uma tarefa "Ao iniciar sessão" que corre `nasyncloud.exe mount`.
-
-**macOS**: um LaunchAgent em `~/Library/LaunchAgents` com `ProgramArguments` = `nasyncloud mount` e `KeepAlive` ativo.
-
-## Configuração
-
-A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config.toml`). Também podes usar `--config caminho`. Opções avançadas (todas editáveis na interface):
-
-| Chave | Omissão | O que faz |
-|---|---|---|
-| `cache_max_size` | `"20G"` | Limite da cache (Linux/macOS). Acima disto, os ficheiros usados há mais tempo são libertados. Fixados e modificados nunca. |
-| `cache_dir` | pasta de cache do sistema | Onde ficam os dados descarregados e o índice. |
-| `dir_ttl_secs` | `30` | Quanto tempo uma listagem de pasta é usada antes de perguntar à NAS outra vez. |
-| `poll_interval_secs` | `300` | De quanto em quanto tempo as pastas fixadas (e, no Windows, todas as pastas já abertas) são comparadas com a NAS. |
-| `upload_delay_secs` | `2` | Pausa depois de fechar um ficheiro antes de o enviar. |
-| `parallel_uploads` | `2` | Uploads em simultâneo. |
-| `readahead_mb` | `8` | Quanto o download pode ir à frente da leitura. |
-| `atomic_upload` | `true` | Upload para nome temporário + renomear. Se a NAS não deixar, passa sozinho para upload direto. |
-| `accept_invalid_certs` | `false` | Aceitar certificados HTTPS que não se conseguem verificar. |
-| `ui_port` | `8730` | Porta da interface (`http://127.0.0.1:8730`). |
-
-`-v` dá mais detalhe no registo.
-
-## Segurança da interface
-
-- Só escuta em `127.0.0.1`; não é acessível de outros computadores.
-- A API exige um token aleatório de 256 bits, guardado em `ui.json` ao lado das definições (só a tua conta o lê). `nasyncloud ui` abre o browser já com ele.
-- Pedidos com outro `Host` são recusados (proteção contra DNS rebinding) e a página tem uma Content-Security-Policy restritiva.
-- Quem tem acesso à tua conta no computador consegue usar a interface, tal como consegue abrir a pasta da NAS.
-
-## Limitações conhecidas
-
-- **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (dá "Host is down" offline). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
-- **Windows**: as alterações feitas na NAS por outros dispositivos só aparecem na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
-- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada). O `du` não reflete o que está no disco (ver acima). O `cp` avisa «could not copy extended attributes» quando o ficheiro tem atributos `com.apple.*`: o ficheiro é copiado inteiro, só esses atributos é que não vão para a NAS. O motor FSKit do macFUSE ainda não funciona com o NASYNCLOUD.
-- Permissões (`chmod`/`chown`), links simbólicos e atributos estendidos não são guardados na NAS.
-- `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador.
-- Os uploads deixam temporariamente ficheiros `.*.nasyncloud-part` na NAS; restos com mais de um dia são apagados sozinhos.
-- As mensagens da secção Atividade (e da linha de comandos) estão em inglês.
-
-## Para quem desenvolve
-
-- [`CLAUDE.md`](CLAUDE.md): contexto rápido do projeto, comandos e armadilhas. Lê primeiro.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): como funciona por dentro.
-- [`docs/DECISIONS.md`](docs/DECISIONS.md): porque é que foi feito assim.
-- [`CHANGELOG.md`](CHANGELOG.md).
-- Testes: `cargo test`; num mount real (Linux ou macOS), `cargo build && cargo build --example fake_nas && tests/e2e.sh` (usa o rclone como NAS se estiver instalado, senão a NAS falsa `examples/fake_nas.rs`). Ambiente de demonstração (Linux): `tools/demo.sh`.
+- [Advanced guide](docs/AVANCADO.md): command line, every setting, starting at login, and building from source.
+- [How it works inside](docs/ARCHITECTURE.md) and [why it's built this way](docs/DECISIONS.md).
+- [What changed in each version](CHANGELOG.md).
+- If you want to contribute, read [CLAUDE.md](CLAUDE.md) first.

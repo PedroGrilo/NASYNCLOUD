@@ -12,6 +12,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 
 - Dono: Pedro, engenheiro frontend (React, Vue, TypeScript, sistemas em tempo real). Escreve e espera respostas em **português europeu (pt-PT)**, tom informal. Prefere desenvolvimento modular e iterativo, com resultado pronto a usar.
 - Nome: **NASYNCLOUD** em tudo o que o utilizador vê (interface, app, pacotes, documentação); `nasyncloud` em minúsculas nos identificadores técnicos (binários, crates, pastas, xattrs, header). O macOS e o Windows não distinguem maiúsculas em nomes de ficheiros: o `.app` tem `nasyncloud` e `nasyncloud-desktop` lado a lado, nunca `NASYNCLOUD` + `nasyncloud`.
+- **README em inglês** (pedido do Pedro), simples, para qualquer pessoa: o que faz, instalar, usar, FAQ. As etiquetas da interface aparecem em pt-PT com a tradução entre parênteses. A parte técnica está em `docs/AVANCADO.md`. A descrição do repositório também é em inglês.
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
@@ -22,7 +23,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 | Linux (FUSE) | Completo e testado: 28 testes (`cargo test`) + 64 verificações num mount real (`tests/e2e.sh`) |
 | macOS (FUSE/macFUSE) | Completo e testado no Mac do Pedro (macOS 27, macFUSE 5.5, motor kext): 28 testes + 63 verificações num mount real (`tests/e2e.sh`; 1 saltada: `st_blocks`) |
 | Windows (Cloud Files) | Compila (`cargo check --target x86_64-pc-windows-msvc`); **nunca correu** |
-| Interface web | Testada pela API no e2e e verificada visualmente (QtWebEngine em Xvfb), em desktop e largura de telemóvel; capturas em `docs/screenshots/` |
+| Interface web | Testada pela API no e2e e vista no browser (desktop e telemóvel); capturas atuais em `docs/screenshots/` (`panel.png`, `files.png`), feitas com uma NAS de demonstração (`fake_nas`) e o browser do Claude |
 | WebDAV da UGOS | **Nunca testado contra o servidor real.** Testado contra rclone (Go x/net/webdav) e `dav-server` |
 
 Primeiro passo quando houver acesso a Windows ou à NAS real: `nasyncloud -v ui`, configurar numa pasta partilhada de teste e corrigir a partir do registo. A própria UGREEN documenta erros 405 do WebDAV ao criar pastas com rclone/Cyberduck; `WebDav::mkdir` já tenta contornar (stat + barra final), mas é o sítio mais provável de falhar.
