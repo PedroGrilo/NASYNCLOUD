@@ -1,0 +1,27 @@
+nasdrive: a tua NAS como uma pasta, com ficheiros a pedido.
+
+ANTES DE ABRIR
+
+1. Instala o macFUSE 5.5 ou mais recente: https://macfuse.github.io
+   Quando o macOS pedir, autoriza a extensão de sistema (Definições do Sistema
+   → Privacidade e segurança) e reinicia o Mac.
+2. Arrasta o nasdrive para a pasta Aplicações.
+
+PRIMEIRA VEZ
+
+A app não está assinada pela Apple, por isso na primeira vez o macOS
+recusa-se a abri-la. Vai a Definições do Sistema → Privacidade e segurança,
+desce até ao aviso sobre o nasdrive e carrega em «Abrir mesmo assim».
+
+USAR
+
+Abrir o nasdrive abre a interface no browser. Na primeira vez vai direta às
+Definições: endereço WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador,
+password e a pasta onde a NAS deve aparecer. «Testar ligação» e depois
+«Guardar e ligar».
+
+O nasdrive fica a correr em segundo plano e não aparece na Dock. Para voltar
+à interface, abre a app outra vez. Para o fechar, usa «Sair» na interface.
+
+Registo: ~/Library/Logs/nasdrive.log
+Mais informação: README.md do projeto.

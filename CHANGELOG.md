@@ -6,6 +6,8 @@
 - macOS: o mount passa a ser feito com `fuse_mount` + `Session::from_fd`, porque o `fuse_mount_compat25` usado pelo `fuser` 0.18 falha sempre no macFUSE 5.
 - macOS: alterações feitas na NAS por outros passam a aparecer. `getattr`/`open` releem a pasta quando passou o `dir_ttl` (o macFUSE não repete o `lookup`), e o `open` pede ao kernel que largue as páginas em cache (`FOPEN_PURGE_UBC`).
 - `tests/e2e.sh` corre em Linux e macOS, com o rclone ou com a NAS falsa `examples/fake_nas.rs` (dav-server), e devolve erro se alguma verificação falhar.
+- Pacotes prontos a instalar: `.dmg` para macOS (`nasdrive.app`, que corre em segundo plano, com ícone; avisa se faltar o macFUSE), `.zip` com o `nasdrive.exe` para Windows e `.tar.gz` para Linux. Gerados pelo GitHub Actions (`release.yml`) a partir de uma tag `v*`, que também publica a Release. `tools/package-macos.sh` gera o `.dmg` localmente.
+- Interface: botão «Sair», que desmonta a pasta e encerra o nasdrive depois de terminar os envios pendentes.
 
 ## 0.1.0 — 2026-11-12
 

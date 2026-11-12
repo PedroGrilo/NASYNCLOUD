@@ -1,0 +1,111 @@
+name: Release
+
+# Builds the macOS .dmg, the Windows .exe (zip) and the Linux binary, after the
+# tests (and, on Linux, the end-to-end test on a real FUSE mount).
+# - Pushing a tag v* (equal to the version in Cargo.toml, e.g. v0.2.0) also
+#   publishes them in a GitHub Release.
+# - "Run workflow" by hand only builds them; they stay as run artifacts.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          [ "${GITHUB_REF_NAME#v}" = "$version" ] || { echo "::error::the tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"; exit 1; }
+      - run: sudo apt-get update && sudo apt-get install -y fuse3 pkg-config libssl-dev rclone bc
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: End-to-end test (real FUSE mount against rclone)
+        run: cargo build --locked && tests/e2e.sh
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          mkdir -p dist
+          tar -C target/release -czf "dist/nasdrive-$version-linux-x86_64.tar.gz" nasdrive
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    env:
+      # macFUSE installs libfuse and its .pc files under /usr/local.
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install macFUSE (only to link against its libfuse)
+        run: brew install --cask macfuse
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - name: Build nasdrive.app and the .dmg
+        run: tools/package-macos.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches.Groups[1].Value
+          New-Item -ItemType Directory -Force dist/pkg | Out-Null
+          Copy-Item target/release/nasdrive.exe dist/pkg/
+          Copy-Item packaging/windows/LEIA-ME.txt dist/pkg/
+          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/nasdrive-$version-windows-x86_64.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "nasdrive $GITHUB_REF_NAME" --generate-notes

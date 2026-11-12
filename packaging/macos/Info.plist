@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>pt-PT</string>
+  <key>CFBundleDisplayName</key><string>nasdrive</string>
+  <key>CFBundleExecutable</key><string>nasdrive-app</string>
+  <key>CFBundleIconFile</key><string>nasdrive</string>
+  <key>CFBundleIdentifier</key><string>io.github.pedrogrilo.nasdrive</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>nasdrive</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <!-- Runs in the background: no Dock icon or menu bar. "Sair" in the interface quits it. -->
+  <key>LSUIElement</key><true/>
+</dict>
+</plist>

@@ -70,6 +70,7 @@ nav.menu a.on{background:linear-gradient(90deg,rgba(99,102,241,.28),rgba(99,102,
 nav.menu a .badge{margin-left:auto}
 .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:0 8px}
 .side-foot small{color:var(--faint)}
+.side-foot .btn{align-self:flex-start}
 .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid var(--line);background:rgba(255,255,255,.04);width:max-content}
 .pill::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .pill[data-kind=ok]::before{background:var(--green);box-shadow:0 0 0 4px rgba(52,211,153,.15)}
@@ -276,7 +277,7 @@ details.card[open]>summary{margin-bottom:16px}
       <a href="#/atividade" data-view="atividade" data-icon="activity">Atividade</a>
       <a href="#/definicoes" data-view="definicoes" data-icon="gear">Definições</a>
     </nav>
-    <div class="side-foot"><span class="pill" id="conn-pill">…</span><small id="version"></small></div>
+    <div class="side-foot"><span class="pill" id="conn-pill">…</span><small id="version"></small><button class="btn sm" id="btn-quit" type="button" data-icon="power" title="Desmonta a pasta da NAS e encerra o nasdrive">Sair</button></div>
   </aside>
 
   <main>
@@ -513,13 +514,16 @@ function setPill(kind, text) {
   p.textContent = text;
 }
 
+let quitting = false;
+
 function renderDown() {
   $('#hero').dataset.kind = 'down';
   $('#hero-icon').replaceChildren(icon('power'));
-  $('#hero-title').textContent = 'O nasdrive não está a correr';
-  $('#hero-detail').textContent = 'Volta a abri-lo com «nasdrive ui».';
+  $('#hero-title').textContent = quitting ? 'O nasdrive foi encerrado' : 'O nasdrive não está a correr';
+  $('#hero-detail').textContent = 'Volta a abri-lo pela app nasdrive ou com «nasdrive ui».' + (quitting ? ' Podes fechar este separador.' : '');
   $('#btn-toggle').disabled = true;
   $('#btn-open-root').disabled = true;
+  $('#btn-quit').disabled = true;
   setPill('down', 'Desligado');
 }
 
@@ -557,6 +561,7 @@ function renderState() {
   else if (running) { toggle.replaceChildren(icon('stop'), 'Parar'); toggle.className = 'btn'; }
   else { toggle.replaceChildren(icon('play'), 'Iniciar'); toggle.className = 'btn primary'; }
   $('#btn-open-root').disabled = !running;
+  $('#btn-quit').disabled = phase === 'stopping';
 
   $('#st-error').hidden = !S.error;
   $('#st-error-text').textContent = S.error || '';
@@ -597,6 +602,15 @@ $('#btn-toggle').addEventListener('click', async () => {
   burst();
 });
 $('#btn-open-root').addEventListener('click', () => openPath(''));
+$('#btn-quit').addEventListener('click', async () => {
+  const pending = S && S.info ? S.info.pending_uploads : 0;
+  const note = pending ? `\n\nAinda há ${plural(pending, 'envio pendente', 'envios pendentes')}: o nasdrive termina-os antes de sair.` : '';
+  if (!confirm('Sair do nasdrive? A pasta da NAS deixa de estar disponível até o voltares a abrir.' + note)) return;
+  try { await api('/api/quit', {}); } catch (e) { report(e); return; }
+  quitting = true;
+  S = null;
+  renderDown();
+});
 
 // Polls quickly for a few seconds after an action, so the change shows at once.
 function burst() {

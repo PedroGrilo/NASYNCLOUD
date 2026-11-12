@@ -1,0 +1,27 @@
+nasdrive: a tua NAS como uma pasta, com ficheiros a pedido.
+
+ATENÇÃO: a versão para Windows ainda é experimental (compila e passa nos
+testes automáticos, mas nunca foi usada num Windows real). Experimenta
+primeiro numa pasta partilhada de teste.
+
+Requisitos: Windows 10 1709 ou mais recente; a pasta local tem de estar
+num disco NTFS.
+
+PRIMEIRA VEZ
+
+O nasdrive.exe não está assinado, por isso o Windows pode mostrar «O Windows
+protegeu o seu PC». Carrega em «Mais informações» e depois em «Executar
+mesmo assim».
+
+USAR
+
+Põe o nasdrive.exe numa pasta tua (por exemplo, Documentos\nasdrive) e faz
+duplo clique. Abre a interface no browser. Na primeira vez vai direta às
+Definições: endereço WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador,
+password e a pasta onde a NAS deve aparecer.
+
+A janela de consola que aparece é o próprio nasdrive: fechá-la para-o.
+Também podes usar «Sair» na interface.
+
+Para arrancar com o Windows: no Agendador de Tarefas, cria uma tarefa
+«Ao iniciar sessão» que corre «nasdrive.exe mount».

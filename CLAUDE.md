@@ -56,6 +56,11 @@ tools/
   screenshot.py     capturas da interface (QtWebEngine), usado para docs/screenshots
 examples/
   fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone, p.ex. no macOS
+tools/package-macos.sh   gera dist/nasdrive.app e dist/nasdrive-<versão>-macos-<arch>.dmg (assinatura ad-hoc)
+packaging/macos/  Info.plist (LSUIElement), lançador nasdrive-app (verifica o macFUSE, regista em ~/Library/Logs), LEIA-ME
+packaging/windows/LEIA-ME.txt   vai no zip com o nasdrive.exe
+assets/           icon.svg (fonte) e nasdrive.icns (gerado a partir dele, ver «Lançar uma versão»)
+.github/workflows/release.yml   tag v* → testes + e2e Linux → .dmg, .exe (zip), binário Linux → GitHub Release
 ```
 
 `Mounted` tem a mesma API nas duas plataformas (`start`, `stop`, `wait_ended`, `info`, `browse`, `pin`, `free`, `refresh`); `service.rs` só fala com isso.
@@ -70,6 +75,14 @@ cargo check --target aarch64-apple-darwin --features macos-no-mount
 cargo build && cargo build --example fake_nas && tests/e2e.sh   # Linux (fuse3) ou macOS (macFUSE); curl, bc, python3; rclone opcional
 tools/demo.sh                                                # demo em http://127.0.0.1:18731
 ```
+
+## Lançar uma versão
+
+1. Subir `version` no `Cargo.toml` (e o `Cargo.lock` com `cargo build`) e mudar «Por lançar» no CHANGELOG para a versão e a data.
+2. Commit, depois `git tag vX.Y.Z && git push origin main vX.Y.Z`. A tag tem de ser igual à versão do `Cargo.toml`, senão o workflow falha logo.
+3. O `release.yml` corre clippy, testes e e2e no Linux e testes no macOS e no Windows. Depois gera os três pacotes e publica a Release. Em «Run workflow» (manual) só gera os pacotes, que ficam como artifacts da execução.
+
+O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PNG de 1024 px com fundo transparente (o Quick Look/`qlmanage` mete fundo branco, por isso usa um script Swift com `NSImage` + `NSBitmapImageRep`), cria o iconset com `sips -z` (16–512, @1x e @2x) e corre `iconutil -c icns`.
 
 ## Armadilhas (ler antes de mexer)
 
@@ -87,6 +100,8 @@ tools/demo.sh                                                # demo em http://12
 - **macOS, alterações remotas**: o macFUSE não repete `lookup` quando o nome expira. Por isso `getattr`/`open` usam `Vfs::getattr_fresh`, que relê a pasta-mãe, e o `open` devolve `FOPEN_PURGE_UBC`. Sem isto, um ficheiro alterado na NAS fica com o conteúdo antigo.
 - **macOS, `st_blocks`**: o macFUSE ignora-o e calcula-o a partir do tamanho, por isso o `du` não serve no macOS (o e2e salta essa verificação).
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
+- **macOS, aviso «fuse: forking a threaded process is unsafe»**: vem do `fuse_mount` do libfuse, que lança o `mount_macfuse` a partir de um processo com threads. É inofensivo (o `malloc` do macOS tem handlers de `fork`), mas convém não pôr trabalho entre o `fork` e o `exec`.
+- **App macOS**: `LSUIElement` (sem Dock), por isso a única forma normal de sair é o botão «Sair» da interface (`/api/quit`). Como a assinatura é ad-hoc, o Porta-chaves pode voltar a pedir autorização para a password depois de cada atualização da app.
 
 ## Próximos passos possíveis
 
@@ -97,7 +112,7 @@ tools/demo.sh                                                # demo em http://12
 5. Backend SMB ou SFTP: basta implementar o trait `Remote`.
 6. macOS: extensão File Provider (Swift, assinada) para ter ícones no Finder.
    - macOS: aceitar e ignorar os xattrs `com.apple.*` em vez de os recusar (tira o aviso do `cp`; confirmar o comportamento do Finder).
-7. CI (GitHub Actions com Linux/macOS/Windows) e binários prontos a instalar.
+7. Pacotes prontos a instalar: feito (`release.yml`). Falta: CI em cada push/PR (hoje só com tag ou à mão), assinatura e notarização da Apple (Developer ID), ícone no `.exe`, `.dmg` universal (Intel).
 
 ## Repositório e máquina local
 
