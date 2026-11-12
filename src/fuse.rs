@@ -12,15 +12,25 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fuser::{
-    AccessFlags, BsdFileFlags, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation, INodeNo, KernelConfig, LockOwner, MountOption, OpenFlags, RenameFlags,
-    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, Session, SessionUnmounter, TimeOrNow, WriteFlags,
+    AccessFlags, BsdFileFlags, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation, INodeNo, KernelConfig, LockOwner, OpenFlags, RenameFlags,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, Session, TimeOrNow, WriteFlags,
 };
+#[cfg(not(target_os = "macos"))]
+use fuser::{MountOption, SessionUnmounter};
 use nasdrive::vfs::{Attr, Kind, Vfs, VfsError, XATTR_EVICT, XATTR_INFO, XATTR_PIN, XATTR_REFRESH, XATTR_STATUS};
 use tokio::runtime::Handle;
 
 /// How long the kernel may cache names and attributes.
 const TTL: Duration = Duration::from_secs(1);
 const BLOCK: u32 = 4096;
+/// Flags for every file open. Linux drops its cached pages on open unless told
+/// `FOPEN_KEEP_CACHE`; macFUSE keeps them unless told `FOPEN_PURGE_UBC`. Ask
+/// for the Linux behaviour everywhere, or a file changed on the NAS without
+/// changing size keeps showing its old contents on macOS.
+#[cfg(target_os = "macos")]
+const OPEN_FLAGS: FopenFlags = FopenFlags::FOPEN_PURGE_UBC;
+#[cfg(not(target_os = "macos"))]
+const OPEN_FLAGS: FopenFlags = FopenFlags::empty();
 
 type DirSnapshot = Arc<Vec<(u64, FileType, String)>>;
 
@@ -109,10 +119,13 @@ impl Filesystem for NasFs {
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
-        match self.vfs.getattr(ino.0) {
-            Ok(a) => reply.attr(&TTL, &fattr(&a, self.owner)),
-            Err(e) => reply.error(errno(&e)),
-        }
+        let (vfs, owner) = (self.vfs.clone(), self.owner);
+        self.rt.spawn(async move {
+            match vfs.getattr_fresh(ino.0).await {
+                Ok(a) => reply.attr(&TTL, &fattr(&a, owner)),
+                Err(e) => reply.error(errno(&e)),
+            }
+        });
     }
 
     fn setattr(
@@ -208,10 +221,19 @@ impl Filesystem for NasFs {
 
     fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         let write = flags.0 & libc::O_ACCMODE != libc::O_RDONLY;
-        match self.vfs.open_file(ino.0, write) {
-            Ok(()) => reply.opened(FileHandle(write as u64), FopenFlags::empty()),
-            Err(e) => reply.error(errno(&e)),
-        }
+        let vfs = self.vfs.clone();
+        self.rt.spawn(async move {
+            // Notice a change made on the NAS before handing out the contents
+            // (see `getattr_fresh`).
+            let res = match vfs.getattr_fresh(ino.0).await {
+                Ok(_) => vfs.open_file(ino.0, write),
+                Err(e) => Err(e),
+            };
+            match res {
+                Ok(()) => reply.opened(FileHandle(write as u64), OPEN_FLAGS),
+                Err(e) => reply.error(errno(&e)),
+            }
+        });
     }
 
     fn read(&self, _req: &Request, ino: INodeNo, _fh: FileHandle, offset: u64, size: u32, _flags: OpenFlags, _lock_owner: Option<LockOwner>, reply: ReplyData) {
@@ -356,30 +378,67 @@ impl Filesystem for NasFs {
     }
 }
 
+/// Unmounts what [`mount`] mounted.
+#[cfg(not(target_os = "macos"))]
+pub struct Unmounter(SessionUnmounter);
+/// Unmounts what [`mount`] mounted.
+#[cfg(target_os = "macos")]
+pub struct Unmounter(std::path::PathBuf);
+
+#[cfg(not(target_os = "macos"))]
+impl Unmounter {
+    pub fn unmount(&mut self) -> io::Result<()> {
+        self.0.unmount()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Unmounter {
+    pub fn unmount(&mut self) -> io::Result<()> {
+        macfuse::unmount(&self.0)
+    }
+}
+
 /// Mounts the file system. Returns a channel that fires when the session ends
 /// (someone unmounted it), plus a handle to unmount it ourselves.
-pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) -> io::Result<(tokio::sync::watch::Receiver<bool>, SessionUnmounter)> {
-    let mut config = fuser::Config::default();
-    config.mount_options = vec![MountOption::FSName("nasdrive".into()), MountOption::NoAtime, MountOption::NoSuid, MountOption::NoDev, MountOption::DefaultPermissions];
-    if cfg!(target_os = "linux") {
-        config.mount_options.push(MountOption::Subtype("nasdrive".into()));
-    }
-    if cfg!(target_os = "macos") {
-        // No `._*` / `.DS_Store` litter and no Finder metadata on the NAS.
-        for opt in [format!("volname={volume_name}"), "noappledouble".to_string(), "noapplexattr".to_string()] {
-            config.mount_options.push(MountOption::CUSTOM(opt));
-        }
-        // Provisional switch to try macFUSE's FSKit backend (`fskit`) while the
-        // macOS mount is being brought up; see CLAUDE.md.
-        if let Ok(b) = std::env::var("NASDRIVE_MACFUSE_BACKEND") {
-            config.mount_options.push(MountOption::CUSTOM(format!("backend={b}")));
-        }
-    }
+pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) -> io::Result<(tokio::sync::watch::Receiver<bool>, Unmounter)> {
     // SAFETY: plain getters without preconditions.
     let owner = unsafe { (libc::getuid(), libc::getgid()) };
     let fs = NasFs { vfs, rt, owner, dirs: Arc::default(), next_fh: AtomicU64::new(1) };
-    let mut session = Session::new(fs, mountpoint, &config)?;
-    let unmounter = session.unmount_callable();
+
+    #[cfg(not(target_os = "macos"))]
+    let (session, unmounter) = {
+        let _ = volume_name;
+        let mut config = fuser::Config::default();
+        config.mount_options = vec![
+            MountOption::FSName("nasdrive".into()),
+            MountOption::Subtype("nasdrive".into()),
+            MountOption::NoAtime,
+            MountOption::NoSuid,
+            MountOption::NoDev,
+            MountOption::DefaultPermissions,
+        ];
+        let mut session = Session::new(fs, mountpoint, &config)?;
+        let unmounter = Unmounter(session.unmount_callable());
+        (session, unmounter)
+    };
+
+    #[cfg(target_os = "macos")]
+    let (session, unmounter) = {
+        // No `._*` / `.DS_Store` litter and no Finder metadata on the NAS.
+        let mut opts: Vec<String> = ["fsname=nasdrive", "noatime", "nosuid", "nodev", "default_permissions", "noappledouble", "noapplexattr"].map(String::from).to_vec();
+        opts.push(format!("volname={volume_name}"));
+        // Escape hatch to try macFUSE's FSKit backend (`fskit`); the kernel
+        // backend is the default and the one that has been tested.
+        if let Ok(b) = std::env::var("NASDRIVE_MACFUSE_BACKEND") {
+            opts.push(format!("backend={b}"));
+        }
+        let fd = macfuse::mount(mountpoint, &opts)?;
+        let config = fuser::Config::default();
+        let session = Session::from_fd(fs, fd, config.acl, config)?;
+        (session, Unmounter(mountpoint.to_path_buf()))
+    };
+
     // The session loop runs on its own thread (not `spawn()`: that would take
     // the mount away from the unmounter).
     let (tx, ended) = tokio::sync::watch::channel(false);
@@ -390,4 +449,72 @@ pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) ->
         tx.send_replace(true);
     })?;
     Ok((ended, unmounter))
+}
+
+/// macFUSE 5 mounts asynchronously: the volume only appears after the file
+/// system has answered the kernel's INIT. `fuse_mount_compat25`, which fuser
+/// 0.18 uses on macOS, fails there (-1 with errno 0, even with no options), so
+/// the device is opened with libfuse's `fuse_mount` instead and handed to
+/// `Session::from_fd`, whose handshake answers INIT and completes the mount.
+#[cfg(target_os = "macos")]
+mod macfuse {
+    use std::ffi::{c_char, c_int, c_void, CString};
+    use std::io;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    #[repr(C)]
+    struct FuseArgs {
+        argc: c_int,
+        argv: *mut *mut c_char,
+        allocated: c_int,
+    }
+
+    #[link(name = "fuse")]
+    extern "C" {
+        fn fuse_mount(mountpoint: *const c_char, args: *mut FuseArgs) -> *mut c_void;
+        fn fuse_chan_fd(ch: *mut c_void) -> c_int;
+        fn fuse_opt_free_args(args: *mut FuseArgs);
+    }
+
+    pub fn mount(mountpoint: &Path, options: &[String]) -> io::Result<OwnedFd> {
+        let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
+        let mut strings = vec![CString::new("nasdrive")?];
+        for opt in options {
+            strings.push(CString::new("-o")?);
+            strings.push(CString::new(opt.as_str())?);
+        }
+        let mut argv: Vec<*mut c_char> = strings.iter().map(|s| s.as_ptr().cast_mut()).collect();
+        let mut args = FuseArgs { argc: argv.len() as c_int, argv: argv.as_mut_ptr(), allocated: 0 };
+        // SAFETY: `argv` points into `strings`, both alive for the whole call;
+        // libfuse copies whatever it keeps (and frees that in `fuse_opt_free_args`).
+        let ch = unsafe { fuse_mount(mnt.as_ptr(), &mut args) };
+        let err = io::Error::last_os_error();
+        unsafe { fuse_opt_free_args(&mut args) };
+        if ch.is_null() {
+            return Err(match err.raw_os_error() {
+                Some(0) | None => io::Error::other("macFUSE refused the mount (its own message, if any, is just above)"),
+                _ => err,
+            });
+        }
+        // The channel is deliberately leaked: destroying it would close the fd
+        // that fuser now owns. fuser closes it when the session ends.
+        // SAFETY: `ch` is a live channel and its fd is open and not owned elsewhere.
+        let fd = unsafe { fuse_chan_fd(ch) };
+        if fd < 0 {
+            return Err(io::Error::other("macFUSE returned no device"));
+        }
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    pub fn unmount(mountpoint: &Path) -> io::Result<()> {
+        let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
+        // SAFETY: `mnt` is a valid C string.
+        if unsafe { libc::unmount(mnt.as_ptr(), 0) } == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
 }

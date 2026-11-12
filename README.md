@@ -18,7 +18,7 @@ Ficheiros a pedido ("Files On-Demand") para uma NAS com WebDAV. Foi pensado para
 | | Motor | Testado |
 |---|---|---|
 | Linux | FUSE | Sim: 28 testes automáticos + 64 verificações num mount real, incluindo a interface |
-| macOS | FUSE (precisa do macFUSE) | Só compila; nunca correu |
+| macOS | FUSE (precisa do macFUSE) | Sim: 28 testes automáticos + 63 verificações num mount real, incluindo a interface (macOS 27, Apple Silicon, macFUSE 5.5) |
 | Windows | Cloud Files API (a do OneDrive) | Só compila; nunca correu |
 
 Também **nunca foi testado contra o WebDAV da UGOS em si**, só contra o do rclone e o `dav-server`. Experimenta primeiro numa pasta partilhada de teste.
@@ -41,7 +41,7 @@ sudo apt install fuse3 pkg-config libssl-dev
 cargo build --release      # binário em target/release/nasdrive
 ```
 
-**macOS**: instala o [macFUSE](https://macfuse.github.io/) (e segue as instruções dele para permitir a extensão), depois:
+**macOS**: instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente e segue as instruções dele para permitir a extensão de sistema. O nasdrive usa o motor clássico (kext) do macFUSE, por isso a extensão tem de estar autorizada e é preciso reiniciar. Depois:
 ```sh
 brew install pkg-config
 cargo build --release
@@ -96,7 +96,7 @@ nasdrive refresh ~/NAS/Fotos    # reler da NAS agora
 nasdrive unmount                # se uma sessão anterior ficou pendurada
 ```
 
-`du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS.
+No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o macFUSE não deixa mudar isso): usa `nasdrive ls` ou `nasdrive status`.
 
 ### Windows
 
@@ -155,7 +155,7 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasdrive/config.t
 
 - **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (dá "Host is down" offline). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
 - **Windows**: as alterações feitas na NAS por outros dispositivos só aparecem na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
-- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada).
+- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada). O `du` não reflete o que está no disco (ver acima). O `cp` avisa «could not copy extended attributes» quando o ficheiro tem atributos `com.apple.*`: o ficheiro é copiado inteiro, só esses atributos é que não vão para a NAS. O motor FSKit do macFUSE ainda não funciona com o nasdrive.
 - Permissões (`chmod`/`chown`), links simbólicos e atributos estendidos não são guardados na NAS.
 - `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador.
 - Os uploads deixam temporariamente ficheiros `.*.nasdrive-part` na NAS; restos com mais de um dia são apagados sozinhos.
@@ -167,4 +167,4 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasdrive/config.t
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): como funciona por dentro.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): porque é que foi feito assim.
 - [`CHANGELOG.md`](CHANGELOG.md).
-- Testes: `cargo test`; no Linux, `cargo build && tests/e2e.sh`. Ambiente de demonstração: `tools/demo.sh`.
+- Testes: `cargo test`; num mount real (Linux ou macOS), `cargo build && cargo build --example fake_nas && tests/e2e.sh` (usa o rclone como NAS se estiver instalado, senão a NAS falsa `examples/fake_nas.rs`). Ambiente de demonstração (Linux): `tools/demo.sh`.

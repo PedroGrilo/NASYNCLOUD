@@ -73,7 +73,11 @@ Tarefas de fundo:
 
 ### FUSE (`fuse.rs`)
 
-Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasdrive.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar. No macOS: `noappledouble`, `noapplexattr`.
+Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`, só no Linux: o macFUSE calcula-o a partir do tamanho). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasdrive.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar.
+
+`getattr` e `open` usam `Vfs::getattr_fresh`, que primeiro relê a pasta-mãe se a listagem tiver mais de `dir_ttl`. No Linux isto já acontecia pelo `lookup`, que o kernel repete quando o nome expira. O macFUSE mantém os nomes em cache e só volta a pedir os atributos. O `open` devolve `FOPEN_PURGE_UBC` no macOS, para o kernel largar as páginas em cache, como o Linux faz ao abrir sem `FOPEN_KEEP_CACHE`.
+
+**Mount no macOS.** O `fuser` 0.18 monta com `fuse_mount_compat25` do libfuse2, que no macFUSE 5 falha sempre (-1, errno 0), porque aí o mount só termina depois de o sistema de ficheiros responder ao INIT. Por isso, no macOS, `fuse.rs` abre o dispositivo com `fuse_mount` (libfuse2, não-compat), passa o descritor a `Session::from_fd`, cujo handshake responde ao INIT, e desmonta com `unmount(2)`. Opções: `noappledouble`, `noapplexattr`, `volname`. `NASDRIVE_MACFUSE_BACKEND=fskit` pede o motor FSKit, que neste momento não monta.
 
 ## Motor Windows (`win.rs`)
 

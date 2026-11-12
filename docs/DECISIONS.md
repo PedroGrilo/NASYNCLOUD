@@ -5,7 +5,7 @@ Registo do porquê das escolhas principais (2026-11).
 1. **WebDAV como protocolo.** O DH2300 não tem Docker oficial, por isso nada pode correr na NAS (nem Nextcloud, nem Resilio). A UGOS já traz WebDAV (5005/5006), que dá ETags, datas e leituras por intervalos, o necessário para ficheiros a pedido. SMB fica para depois, atrás do mesmo trait `Remote`.
 2. **Linux/macOS com FUSE e cache própria**, em vez de montar e confiar no cache do sistema. Só assim há "manter offline", "libertar espaço", trabalho offline com fila de envio e estado por ficheiro.
 3. **Windows com a Cloud Files API** (a do OneDrive), em vez de WinFsp. Não precisa de instalar drivers e dá de graça os ícones e os menus do Explorador.
-4. **macOS com macFUSE** por agora. O File Provider daria ícones no Finder, mas exige uma extensão em Swift assinada e notarizada.
+4. **macOS com macFUSE** por agora. O File Provider daria ícones no Finder, mas exige uma extensão em Swift assinada e notarizada. Usa-se o motor kext do macFUSE: o FSKit não montou com macFUSE 5.5 no macOS 27. O mount é feito pelo próprio nasdrive (`fuse_mount` + `Session::from_fd`), porque o caminho do `fuser` 0.18 (`fuse_mount_compat25`) não funciona no macFUSE 5. Trocar para um `fuser` que suporte o macFUSE 5 diretamente, quando existir, simplifica isto.
 5. **Uploads para nome temporário + MOVE.** Uma falha a meio nunca deixa um ficheiro cortado. Se o servidor não suportar MOVE por cima, passa sozinho a upload direto.
 6. **Conflitos: ficam os dois.** O ficheiro local passa a `nome (conflict DATA).ext` e o da NAS mantém o nome. Nunca se perde trabalho e nunca se escolhe por heurística.
 7. **Uma edição ganha a uma remoção remota.** Se um ficheiro foi apagado na NAS mas alterado aqui, volta a subir.

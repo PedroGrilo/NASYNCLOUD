@@ -1,18 +1,53 @@
 #!/bin/bash
-# Requires: Linux with FUSE, rclone (as the WebDAV server), curl, bc, python3. Run `cargo build` first.
-# End-to-end test: real FUSE mount against a real WebDAV server (rclone = Go x/net/webdav).
+# End-to-end test: real FUSE mount against a real WebDAV server.
+# Linux (fuse3) or macOS (macFUSE), plus curl, bc, python3. Run `cargo build` first.
+# The NAS is rclone (Go x/net/webdav) when installed, otherwise `cargo build --example fake_nas`
+# (dav-server). Force one with NAS_SERVER=rclone|fake_nas. Work folder: E2E_DIR (default /tmp/e2e).
 BIN=${BIN:-$(cd "$(dirname "$0")/.." && pwd)/target/debug/nasdrive}
-W=/tmp/e2e; NAS=$W/nas; MNT=$W/mnt; CFG=$W/config.toml
-fusermount3 -uz $MNT 2>/dev/null; pkill -x nasdrive 2>/dev/null; pkill -x rclone 2>/dev/null; sleep 0.5
-rm -rf $W; mkdir -p $NAS/Docs/sub $NAS/Media $MNT
+FAKE_NAS=${FAKE_NAS:-$(dirname "$BIN")/examples/fake_nas}
+NAS_SERVER=${NAS_SERVER:-$(command -v rclone >/dev/null && echo rclone || echo fake_nas)}
+MAC=; [ "$(uname)" = Darwin ] && MAC=1
+if [ -n "$MAC" ]; then
+  is_mounted(){ mount | grep -qF " on $1 ("; }
+  force_unmount(){ umount -f "$1" 2>/dev/null || diskutil unmount force "$1" >/dev/null 2>&1; }
+  fsize(){ stat -f %z "$1"; }
+  fblocks(){ stat -f %b "$1"; }
+  md5of(){ md5 -q "$1"; }
+  sedi(){ sed -i '' "$@"; }
+  detach(){ nohup "$@"; }
+else
+  is_mounted(){ mountpoint -q "$1"; }
+  force_unmount(){ fusermount3 -uz "$1" 2>/dev/null; }
+  fsize(){ stat -c %s "$1"; }
+  fblocks(){ stat -c %b "$1"; }
+  md5of(){ md5sum < "$1" | cut -d' ' -f1; }
+  sedi(){ sed -i "$@"; }
+  detach(){ setsid nohup "$@"; }
+fi
+now(){ python3 -c 'import time; print(time.time())'; }
+W=${E2E_DIR:-/tmp/e2e}
+force_unmount $W/mnt; pkill -x nasdrive 2>/dev/null; pkill -x rclone 2>/dev/null; pkill -x fake_nas 2>/dev/null; sleep 0.5
+rm -rf $W; mkdir -p $W; W=$(cd $W && pwd -P)   # macOS: /tmp is /private/tmp, and mount(8) shows the real path
+NAS=$W/nas; MNT=$W/mnt; CFG=$W/config.toml
+mkdir -p $NAS/Docs/sub $NAS/Media $MNT
 pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "  ok   $1"; }
 bad()  { fail=$((fail+1)); echo "  FAIL $1 ${2:+-- $2}"; }
+skip() { echo "  skip $1"; }
 check(){ local d="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi; }
 waitfor(){ local t=$1; shift; for i in $(seq $((t*5))); do "$@" >/dev/null 2>&1 && return 0; sleep 0.2; done; return 1; }
 nd()   { $BIN --config $CFG "$@"; }
-start_nas(){ setsid nohup rclone serve webdav $NAS --dir-cache-time 0s --addr 127.0.0.1:5005 --user pedro --pass segredo > $W/rclone.log 2>&1 < /dev/null & }
-start_nd(){ setsid nohup $BIN --config $CFG mount > $W/nasdrive.log 2>&1 < /dev/null & waitfor 10 mountpoint -q $MNT; }
+not_mounted(){ ! is_mounted $MNT; }
+start_nas(){
+  if [ "$NAS_SERVER" = rclone ]; then detach rclone serve webdav $NAS --dir-cache-time 0s --addr 127.0.0.1:5005 --user pedro --pass segredo >> $W/nas.log 2>&1 < /dev/null &
+  else detach $FAKE_NAS $NAS 127.0.0.1:5005 pedro segredo >> $W/nas.log 2>&1 < /dev/null &
+  fi
+}
+stop_nas(){ pkill -x rclone 2>/dev/null; pkill -x fake_nas 2>/dev/null; }
+nas_up(){ curl -sf -u pedro:segredo -X PROPFIND -H 'Depth: 0' -o /dev/null http://127.0.0.1:5005/; }
+start_nd(){ detach $BIN --config $CFG mount > $W/nasdrive.log 2>&1 < /dev/null & waitfor 10 is_mounted $MNT; }
+[ "$NAS_SERVER" = rclone ] || [ -x "$FAKE_NAS" ] || { echo "no rclone and no $FAKE_NAS: run \`cargo build --example fake_nas\`"; exit 1; }
+echo "($([ -n "$MAC" ] && echo macOS || echo Linux), NAS: $NAS_SERVER)"
 
 head -c 40000000 /dev/urandom > $NAS/Media/filme.mkv
 echo "relatório" > "$NAS/Docs/relatório final (v2).txt"
@@ -28,22 +63,23 @@ dir_ttl_secs = 1
 upload_delay_secs = 1
 ui_port = 18730
 EOT
-start_nas; waitfor 10 curl -sf -u pedro:segredo http://127.0.0.1:5005/ || { echo "rclone did not start"; cat $W/rclone.log; exit 1; }
+start_nas; waitfor 10 nas_up || { echo "the NAS ($NAS_SERVER) did not start"; cat $W/nas.log; exit 1; }
 
 echo "== mount and browse"
 start_nd && ok "mounted" || { bad "mount"; cat $W/nasdrive.log; exit 1; }
 check "top-level listing" test "$(ls $MNT | tr '\n' ' ')" = "Docs Media "
 check "names with accents/spaces" test -f "$MNT/Docs/relatório final (v2).txt"
-check "size without download" test "$(stat -c %s $MNT/Media/filme.mkv)" = 40000000
-check "online-only file uses no local blocks" test "$(stat -c %b $MNT/Media/filme.mkv)" = 0
-grep -q "GET /Media" $W/rclone.log && bad "browsing triggered a download" || ok "browsing downloads nothing"
+check "size without download" test "$(fsize $MNT/Media/filme.mkv)" = 40000000
+if [ -n "$MAC" ]; then skip "online-only file uses no local blocks (macFUSE derives st_blocks from the size)"
+else check "online-only file uses no local blocks" test "$(fblocks $MNT/Media/filme.mkv)" = 0; fi
+grep -q "GET /Media" $W/nas.log && bad "browsing triggered a download" || ok "browsing downloads nothing"
 
 echo "== on-demand reads"
 check "small file content" test "$(cat "$MNT/Docs/relatório final (v2).txt")" = "relatório"
-check "partial read is correct" cmp <(dd if=$MNT/Media/filme.mkv bs=1M skip=20 count=1 2>/dev/null) <(dd if=$NAS/Media/filme.mkv bs=1M skip=20 count=1 2>/dev/null)
+check "partial read is correct" cmp <(dd if=$MNT/Media/filme.mkv bs=1048576 skip=20 count=1 2>/dev/null) <(dd if=$NAS/Media/filme.mkv bs=1048576 skip=20 count=1 2>/dev/null)
 st=$(nd status $MNT/Media/filme.mkv); echo "$st" | grep -q partial && ok "partially cached after a seek ($(echo $st | sed 's/.*partial *//'))" || bad "status after partial read" "$st"
-t0=$(date +%s.%N); sum=$(md5sum < $MNT/Media/filme.mkv); t1=$(date +%s.%N)
-check "full read matches (md5)" test "$sum" = "$(md5sum < $NAS/Media/filme.mkv)"
+t0=$(now); sum=$(md5of $MNT/Media/filme.mkv); t1=$(now)
+check "full read matches (md5)" test "$sum" = "$(md5of $NAS/Media/filme.mkv)"
 echo "       40 MB read through the mount in $(echo "$t1 - $t0" | bc | cut -c1-5)s"
 waitfor 5 sh -c "$BIN --config $CFG status $MNT/Media/filme.mkv | grep -q cached" && ok "fully cached afterwards" || bad "status after full read" "$(nd status $MNT/Media/filme.mkv)"
 check "du sees the cached bytes" test "$(du -sm $MNT/Media | cut -f1)" -ge 38
@@ -55,7 +91,7 @@ mkdir -p $MNT/Projetos/app/src && echo 'fn main() {}' > $MNT/Projetos/app/src/ma
 waitfor 10 grep -qx 'fn main() {}' $NAS/Projetos/app/src/main.rs && ok "mkdir -p + new file" || bad "mkdir -p + new file"
 echo "linha extra" >> $MNT/Docs/numeros.txt
 waitfor 10 sh -c "tail -1 $NAS/Docs/numeros.txt | grep -q 'linha extra' && test \$(wc -l < $NAS/Docs/numeros.txt) = 20001" && ok "append to an existing file" || bad "append" "$(wc -l < $NAS/Docs/numeros.txt)"
-sed -i 's/nota/nota editada/' $MNT/Docs/sub/nota.txt
+sedi 's/nota/nota editada/' $MNT/Docs/sub/nota.txt
 waitfor 10 grep -qx "nota editada" $NAS/Docs/sub/nota.txt && ok "sed -i (temp file + rename over)" || bad "sed -i" "$(cat $NAS/Docs/sub/nota.txt)"
 echo "v2" > "$MNT/Docs/relatório final (v2).txt"
 waitfor 10 grep -qx v2 "$NAS/Docs/relatório final (v2).txt" && ok "overwrite with >" || bad "overwrite"
@@ -65,7 +101,7 @@ p="$MNT/Docs/numeros.txt"
 f=open(p,"r+b"); f.seek(0); f.write(b"X"); f.flush(); os.fsync(f.fileno()); f.close()
 PY
 waitfor 10 sh -c "head -c1 $NAS/Docs/numeros.txt | grep -q X" && ok "…and it reaches the NAS" || bad "random-access write upload"
-mkdir -p $W/src && for i in $(seq 1 150); do echo "ficheiro $i" > $W/src/f$i.txt; done; mkdir -p $W/src/d1/d2 && cp /etc/hostname $W/src/d1/d2/h
+mkdir -p $W/src && for i in $(seq 1 150); do echo "ficheiro $i" > $W/src/f$i.txt; done; mkdir -p $W/src/d1/d2 && echo host > $W/src/d1/d2/h
 tar -C $W/src -cf - . | tar -C $MNT/Projetos -xf - 2>$W/tar.err
 waitfor 40 diff -r $W/src $NAS/Projetos --exclude=app && ok "tar of 150 small files arrives intact" || bad "tar extract" "$(diff -rq $W/src $NAS/Projetos | head -3; cat $W/tar.err | head -3)"
 head -c 30000000 /dev/urandom > $W/big.bin; cp $W/big.bin $MNT/Media/big.bin
@@ -109,11 +145,12 @@ j "$API/api/log?after=0" | grep -q 'uploaded Docs' && ok "activity log is expose
 cp $CFG $W/config.before
 cfgjson=$(j $API/api/state | python3 -c "import json,sys; c=json.load(sys.stdin)['config']; c['dir_ttl_secs']=2; print(json.dumps({'config': c}))")
 j -X POST -d "$cfgjson" $API/api/config | grep -q '"ok":true' && grep -q 'dir_ttl_secs = 2' $CFG && grep -q 'password = "segredo"' $CFG && ok "saving settings keeps the stored password" || bad "save settings" "$(cat $CFG)"
-waitfor 20 sh -c "curl -s -H 'x-nasdrive-token: $TOK' $API/api/state | grep -q '\"phase\":\"running\"' && mountpoint -q $MNT" && ok "the mount restarts with the new settings" || bad "restart after save" "$(tail -5 $W/nasdrive.log)"
+running_and_mounted(){ j $API/api/state | grep -q '"phase":"running"' && is_mounted $MNT; }
+waitfor 20 running_and_mounted && ok "the mount restarts with the new settings" || bad "restart after save" "$(tail -5 $W/nasdrive.log)"
 check "files are still there after the restart" grep -qx "nota editada" $MNT/Docs/sub/nota.txt
-j -X POST -d '{}' $API/api/unmount >/dev/null; waitfor 15 sh -c "! mountpoint -q $MNT" && ok "stop from the interface unmounts" || bad "unmount via API"
+j -X POST -d '{}' $API/api/unmount >/dev/null; waitfor 15 not_mounted && ok "stop from the interface unmounts" || bad "unmount via API"
 check "…and the interface keeps answering" sh -c "curl -s -H 'x-nasdrive-token: $TOK' $API/api/state | grep -q '\"phase\":\"stopped\"'"
-j -X POST -d '{}' $API/api/mount >/dev/null; waitfor 15 mountpoint -q $MNT && ok "start from the interface mounts again" || bad "mount via API" "$(tail -5 $W/nasdrive.log)"
+j -X POST -d '{}' $API/api/mount >/dev/null; waitfor 15 is_mounted $MNT && ok "start from the interface mounts again" || bad "mount via API" "$(tail -5 $W/nasdrive.log)"
 cp $W/config.before $CFG
 
 echo "== changes made on the NAS by someone else"
@@ -122,7 +159,7 @@ waitfor 8 grep -q "alterado no NAS" $MNT/Docs/sub/nota.txt && ok "remote edit sh
 rm $NAS/Docs/chegou-depois.txt; sleep 1.5; waitfor 8 test ! -e $MNT/Docs/chegou-depois.txt && ok "remote delete shows up" || bad "remote delete"
 
 echo "== offline"
-pkill -x rclone; sleep 0.5
+stop_nas; sleep 0.5
 check "pinned file readable offline" grep -q "alterado no NAS" $MNT/Docs/sub/nota.txt
 err=$(dd if=$MNT/Media/filme.mkv of=/dev/null bs=4k count=1 2>&1); echo "$err" | grep -qi "host is down" && ok "online-only file fails cleanly: Host is down" || bad "uncached read offline" "$err"
 echo "escrito offline" > $MNT/Docs/offline.txt && mkdir $MNT/Docs/pasta-offline && echo x > $MNT/Docs/pasta-offline/x && ok "can create files and folders offline" || bad "offline create"
@@ -133,11 +170,13 @@ waitfor 25 sh -c "grep -qx 'escrito offline' $NAS/Docs/offline.txt && test -f $N
 
 echo "== restart"
 pkill -INT -x nasdrive; waitfor 15 sh -c '! pgrep -x nasdrive' && ok "Ctrl+C unmounts and exits" || bad "shutdown" "$(tail -5 $W/nasdrive.log)"
-check "mountpoint is unmounted and empty" sh -c "! mountpoint -q $MNT && test -z \"\$(ls -A $MNT 2>&1)\""
-cp $W/nasdrive.log $W/nasdrive1.log; : > $W/rclone.log; start_nd && ok "mounted again" || bad "second mount" "$(tail -5 $W/nasdrive.log)"
+unmounted_and_empty(){ not_mounted && test -z "$(ls -A $MNT 2>&1)"; }
+check "mountpoint is unmounted and empty" unmounted_and_empty
+cp $W/nasdrive.log $W/nasdrive1.log; : > $W/nas.log; start_nd && ok "mounted again" || bad "second mount" "$(tail -5 $W/nasdrive.log)"
 nd status $MNT/Docs | grep -q "pinned" && ok "pins survive a restart" || bad "pin persistence" "$(nd status $MNT/Docs)"
-cat $MNT/Docs/numeros.txt > /dev/null; grep -q "GET /Docs/numeros" $W/rclone.log && bad "cached file was downloaded again after restart" || ok "cache survives a restart (no new download)"
-pkill -INT -x nasdrive; waitfor 15 sh -c '! pgrep -x nasdrive'; pkill -x rclone
+cat $MNT/Docs/numeros.txt > /dev/null; grep -q "GET /Docs/numeros" $W/nas.log && bad "cached file was downloaded again after restart" || ok "cache survives a restart (no new download)"
+pkill -INT -x nasdrive; waitfor 15 sh -c '! pgrep -x nasdrive'; stop_nas
 ls $NAS/Docs | grep -q conflict && bad "spurious conflict copy" "$(ls $NAS/Docs)" || ok "no spurious conflict copies"
 grep -hE "panicked|ERROR|WARN" $W/nasdrive1.log $W/nasdrive.log | grep -v "unreachable, working offline" | head -8
 echo "== $pass passed, $fail failed"
+[ $fail = 0 ]

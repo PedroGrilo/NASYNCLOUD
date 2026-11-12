@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
-use fuser::SessionUnmounter;
+use crate::fuse::Unmounter;
 use nasdrive::config::{format_size, Config};
 use nasdrive::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT, XATTR_INFO, XATTR_STATUS};
 use tokio::sync::watch;
@@ -18,7 +18,7 @@ use crate::service::{EntryView, Listing, MountInfo};
 pub struct Mounted {
     vfs: Arc<Vfs>,
     mountpoint: PathBuf,
-    unmounter: Mutex<Option<SessionUnmounter>>,
+    unmounter: Mutex<Option<Unmounter>>,
     /// Becomes `true` when the FUSE session is over, whoever ended it.
     ended: watch::Receiver<bool>,
     stopping: AtomicBool,

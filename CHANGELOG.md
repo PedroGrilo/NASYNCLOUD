@@ -1,5 +1,12 @@
 # Changelog
 
+## Por lançar
+
+- **macOS funciona e está testado** (macOS 27, Apple Silicon, macFUSE 5.5, motor kext): 28 testes e 63 verificações num mount real.
+- macOS: o mount passa a ser feito com `fuse_mount` + `Session::from_fd`, porque o `fuse_mount_compat25` usado pelo `fuser` 0.18 falha sempre no macFUSE 5.
+- macOS: alterações feitas na NAS por outros passam a aparecer. `getattr`/`open` releem a pasta quando passou o `dir_ttl` (o macFUSE não repete o `lookup`), e o `open` pede ao kernel que largue as páginas em cache (`FOPEN_PURGE_UBC`).
+- `tests/e2e.sh` corre em Linux e macOS, com o rclone ou com a NAS falsa `examples/fake_nas.rs` (dav-server), e devolve erro se alguma verificação falhar.
+
 ## 0.1.0 — 2026-11-12
 
 - Cliente WebDAV (PROPFIND, GET por intervalos, PUT, MKCOL, MOVE, DELETE, quota), com contornos para servidores que ignoram `Range` ou respondem 405 a MKCOL.

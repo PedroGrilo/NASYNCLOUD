@@ -812,6 +812,24 @@ impl Vfs {
         Ok(self.st().get(id)?.attr())
     }
 
+    /// Like [`Vfs::getattr`], but first makes sure the listing `id` came from
+    /// is no older than the TTL. Linux repeats `lookup` when a name expires,
+    /// which already does this; macFUSE keeps names cached and only asks for
+    /// the attributes again, so without this a file changed on the NAS would
+    /// keep its old size and contents on macOS.
+    pub async fn getattr_fresh(self: &Arc<Self>, id: NodeId) -> Result<Attr> {
+        let parent = {
+            let st = self.st();
+            let n = st.get(id)?;
+            (id != ROOT && !n.unlinked).then_some(n.parent)
+        };
+        if let Some(parent) = parent {
+            // A failed refresh just means we answer from what we already know.
+            let _ = self.ensure_listed(parent).await;
+        }
+        self.getattr(id)
+    }
+
     pub async fn lookup(self: &Arc<Self>, parent: NodeId, name: &str) -> Result<Attr> {
         self.ensure_listed(parent).await?;
         let st = self.st();
