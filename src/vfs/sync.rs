@@ -95,8 +95,12 @@ impl Vfs {
         let mut seen = HashSet::new();
         let mut changed = false;
         let mut removed = false;
+        // Excluded items on the server are not shown. A local one that used to
+        // mirror one then counts as gone there: dropped, or kept as local-only
+        // if it holds changes made here (see `detach_from_server`).
+        let dir_path = st.path(dir).unwrap_or_default();
         for e in entries {
-            if !valid_name(&e.name) {
+            if !valid_name(&e.name) || self.opts.excludes.matches(&remote::join(&dir_path, &e.name), e.is_dir) {
                 continue;
             }
             let kind = if e.is_dir { Kind::Dir } else { Kind::File };

@@ -185,6 +185,7 @@ main{min-width:0;padding:6px 4px 40px}
 .s-cached{color:#a7f3d0;border-color:rgba(52,211,153,.3);background:rgba(16,185,129,.1)}
 .s-modified,.s-uploading{color:#fde68a;border-color:rgba(251,191,36,.35);background:rgba(245,158,11,.12)}
 .s-uploading .ic{animation:bob 1s ease-in-out infinite}
+.s-local{border-style:dashed;color:var(--muted)}
 .empty{padding:48px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
 .empty>.ic svg{width:42px;height:42px;stroke-width:1.4;color:var(--faint)}
 .empty p{margin:0}
@@ -213,6 +214,17 @@ details.card[open]>summary::after{transform:rotate(-135deg)}
 details.card[open]>summary{margin-bottom:16px}
 .adv{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0 16px}
 .adv .check{grid-column:1/-1}
+.excl-intro{margin:0 0 14px;line-height:1.5}
+#excl-card code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:1px 6px;border-radius:6px;background:rgba(255,255,255,.07);color:var(--text)}
+.excl-list{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+.excl-list .chip{color:var(--text);padding:3px 4px 3px 12px;font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.chip .x{border:0;background:none;color:var(--faint);cursor:pointer;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:inherit;font-size:16px;line-height:1;padding:0}
+.chip .x:hover{background:rgba(255,255,255,.1);color:var(--text)}
+.excl-add{display:flex;gap:10px}
+.excl-add input{flex:1;min-width:0}
+.sugg{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sugg button.chip{cursor:pointer;border-style:dashed;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.sugg button.chip:hover{color:var(--text);border-color:var(--line-hi);background:rgba(255,255,255,.07)}
 .save-row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
 .platform-windows .only-unix,body:not(.platform-windows) .only-win{display:none}
 
@@ -347,6 +359,17 @@ details.card[open]>summary{margin-bottom:16px}
           <label class="field only-unix"><span>Espaço máximo para ficheiros descarregados</span><input name="cache_max_size" type="text" placeholder="20G" spellcheck="false"><small>Por exemplo 500M, 20G ou 1T. O que mantiveres offline ou ainda estiver por enviar nunca é apagado.</small></label>
           <p class="muted small only-win">No Windows, o espaço é gerido pelo próprio sistema. Usa «Libertar espaço» quando quiseres.</p>
         </div>
+        <div class="card glass span2" id="excl-card">
+          <div class="card-head" data-icon="local">Excluir da sincronização</div>
+          <p class="muted small excl-intro">O que tiver estes nomes fica só neste computador: nunca é enviado para a NAS e, se a NAS já o tiver, deixa de aparecer aqui (lá fica intacto). Ideal para <code>.git</code> e <code>node_modules</code> dos projetos.</p>
+          <div class="excl-list" id="excl-list"></div>
+          <div class="field">
+            <span>Acrescentar</span>
+            <div class="excl-add"><input id="excl-input" type="text" placeholder="node_modules, *.log, build/" spellcheck="false" autocapitalize="off" autocomplete="off"><button type="button" class="btn" id="excl-btn">Acrescentar</button></div>
+            <small>Um nome apanha ficheiros e pastas com esse nome em qualquer sítio, e tudo o que estiver dentro. <code>*</code> e <code>?</code> servem de curinga (<code>*.tmp</code>). Uma barra no fim só apanha pastas (<code>build/</code>); uma barra no início ou a meio é um caminho a partir da pasta da NAS (<code>/Fotos/RAW</code>). Maiúsculas ou minúsculas, tanto faz.</small>
+          </div>
+          <div class="sugg" id="excl-sugg"></div>
+        </div>
         <details class="card glass span2">
           <summary class="card-head" data-icon="gear">Avançado</summary>
           <div class="adv">
@@ -377,6 +400,7 @@ const ICONS = {
   home: '<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
   files: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  local: '<rect x="4" y="5" width="16" height="10.5" rx="1.5"/><path d="M2.5 19h19"/>',
   activity: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
   gear: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 8.6 4.6 4.6 0 0 1 17 18.5z"/>',
@@ -628,7 +652,7 @@ const STATES = {
   cached: ['Neste computador', 'check', 's-cached'],
   modified: ['Por enviar', 'upload', 's-modified'],
   uploading: ['A enviar…', 'upload', 's-uploading'],
-  local: ['Só neste computador', 'file', ''],
+  local: ['Só neste computador', 'local', 's-local'],
 };
 
 const folderHref = rel => '#/ficheiros' + (rel ? '/' + rel.split('/').map(encodeURIComponent).join('/') : '');
@@ -680,6 +704,9 @@ async function loadFiles(reset) {
 }
 
 function chip(e) {
+  if (e.state === 'local') {
+    return h('span', { class: 'chip s-local', title: 'Não vai para a NAS: está excluído da sincronização (Definições) ou é um ficheiro do sistema.' }, icon('local'), 'Só neste computador');
+  }
   if (e.dir) {
     if (S.platform === 'windows' || !e.files) {
       return e.pending ? h('span', { class: 'chip s-modified' }, icon('upload'), `${e.pending} por enviar`) : h('span', { class: 'chip' }, icon('files'), 'Pasta');
@@ -697,6 +724,7 @@ function row(e) {
   const rel = join(cwd, e.name);
   const pinned = e.pinned !== 'no';
   const inherited = e.pinned === 'inherited';
+  const local = e.state === 'local';
   const name = e.dir
     ? h('a', { class: 'name', href: folderHref(rel) }, h('span', { class: 'ft dir' }, icon('files')), h('span', null, e.name))
     : h('button', { class: 'name', type: 'button', title: 'Abrir', onclick: () => openPath(rel) }, h('span', { class: 'ft' }, icon('file')), h('span', null, e.name));
@@ -707,8 +735,8 @@ function row(e) {
     h('span', { class: 'c-size' }, e.dir ? (e.size ? size(e.size) : '') : size(e.size)),
     h('span', { class: 'c-date' }, date(e.mtime)),
     h('div', { class: 'acts' },
-      h('button', { class: 'icon-btn' + (pinned ? ' on' : ''), type: 'button', title: pinTitle, 'aria-label': pinTitle, disabled: inherited, onclick: () => pin(rel, !pinned) }, icon('pin')),
-      h('button', { class: 'icon-btn', type: 'button', title: 'Libertar espaço', 'aria-label': 'Libertar espaço', disabled: inherited || (!e.dir && !e.cached), onclick: () => free(rel) }, icon('free')),
+      h('button', { class: 'icon-btn' + (pinned ? ' on' : ''), type: 'button', title: pinTitle, 'aria-label': pinTitle, disabled: inherited || local, onclick: () => pin(rel, !pinned) }, icon('pin')),
+      h('button', { class: 'icon-btn', type: 'button', title: 'Libertar espaço', 'aria-label': 'Libertar espaço', disabled: inherited || local || (!e.dir && !e.cached), onclick: () => free(rel) }, icon('free')),
       h('button', { class: 'icon-btn', type: 'button', title: 'Abrir', 'aria-label': 'Abrir', onclick: () => openPath(rel) }, icon('ext'))));
 }
 
@@ -816,7 +844,30 @@ $('#log-filter').addEventListener('click', ev => {
 // ---------------------------------------------------------------- definicoes
 
 const NUMBERS = ['dir_ttl_secs', 'poll_interval_secs', 'upload_delay_secs', 'parallel_uploads', 'readahead_mb', 'ui_port'];
-const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, readahead_mb: 8, atomic_upload: true, ui_port: 8730 };
+const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, readahead_mb: 8, atomic_upload: true, ui_port: 8730, exclude: [] };
+const EXCL_SUGGESTIONS = ['.git', 'node_modules', '.venv', '__pycache__', '.next', 'target/', 'dist/', '*.tmp', '*.log'];
+let excludes = [];
+
+function renderExcludes() {
+  const remove = p => () => { excludes = excludes.filter(x => x !== p); formDirty = true; renderExcludes(); };
+  $('#excl-list').replaceChildren(...(excludes.length
+    ? excludes.map(p => h('span', { class: 'chip' }, h('span', null, p), h('button', { type: 'button', class: 'x', title: 'Tirar', 'aria-label': 'Tirar ' + p, onclick: remove(p) }, '×')))
+    : [h('span', { class: 'muted small' }, 'Nada excluído: tudo é sincronizado.')]));
+  const have = new Set(excludes.map(p => p.toLowerCase()));
+  const sugg = EXCL_SUGGESTIONS.filter(p => !have.has(p.toLowerCase()));
+  $('#excl-sugg').replaceChildren(...(sugg.length ? [h('span', { class: 'muted small' }, 'Sugestões:'), ...sugg.map(p => h('button', { type: 'button', class: 'chip', title: 'Acrescentar ' + p, onclick: () => addExclude(p) }, '+ ' + p))] : []));
+}
+
+function addExclude(text) {
+  for (const p of text.split(/[,\n]/).map(t => t.trim()).filter(Boolean)) {
+    if (!excludes.some(x => x.toLowerCase() === p.toLowerCase())) excludes.push(p);
+  }
+  formDirty = true;
+  renderExcludes();
+}
+
+$('#excl-btn').addEventListener('click', () => { const i = $('#excl-input'); addExclude(i.value); i.value = ''; i.focus(); });
+$('#excl-input').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#excl-btn').click(); } });
 
 function fillForm(force) {
   if (!S || (formDirty && !force)) return;
@@ -827,6 +878,8 @@ function fillForm(force) {
     if (el.type === 'checkbox') el.checked = !!c[el.name];
     else el.value = c[el.name] == null ? '' : c[el.name];
   }
+  excludes = Array.isArray(c.exclude) ? c.exclude.slice() : [];
+  renderExcludes();
   if (force) {
     f.elements.password.value = '';
     $('#test-result').textContent = '';
@@ -849,6 +902,7 @@ function readForm() {
     if (!el.name || el.name === 'password') continue;
     c[el.name] = el.type === 'checkbox' ? el.checked : NUMBERS.includes(el.name) ? Number(el.value) : el.value.trim();
   }
+  c.exclude = excludes.slice();
   return c;
 }
 

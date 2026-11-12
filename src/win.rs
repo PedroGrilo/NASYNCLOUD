@@ -17,7 +17,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::windows::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -33,6 +34,7 @@ use cloud_filter::usn::Usn;
 use cloud_filter::utility::WriteAt as _;
 use futures_util::StreamExt;
 use nasyncloud::config::Config;
+use nasyncloud::exclude::Excludes;
 use nasyncloud::remote::{self, norm_etag, Entry, Remote, RemoteError, Version};
 use nasyncloud::webdav::WebDav;
 use tokio::runtime::Handle;
@@ -46,6 +48,12 @@ const ATTR_UNPINNED: u32 = 0x0010_0000;
 const SETTLE: Duration = Duration::from_secs(2);
 const CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 const NO_USN: Option<&mut Usn> = None;
+/// How long one turn of the worker may spend on local changes, and on polling
+/// the NAS, before looking at the other (and at whether it should stop).
+const QUEUE_SLICE: Duration = Duration::from_secs(3);
+const POLL_SLICE: Duration = Duration::from_secs(1);
+/// How long `stop` waits for the worker before giving up on it.
+const STOP_WAIT: Duration = Duration::from_secs(20);
 
 struct Engine {
     root: PathBuf,
@@ -68,6 +76,18 @@ struct Engine {
     poke: Mutex<HashSet<String>>,
     /// Remote folders known to exist (saves MKCOL round trips).
     known_dirs: Mutex<HashSet<String>>,
+    /// What stays on this computer only (`.git`, `node_modules`...).
+    excludes: Excludes,
+    /// When each folder was last compared with the NAS.
+    polled: Mutex<HashMap<String, Instant>>,
+    /// Folders someone opened recently are compared again after this long.
+    dir_ttl: Duration,
+    /// Set by `Mounted::stop`: everything wraps up and network calls are cancelled.
+    stop: watch::Sender<bool>,
+    /// The library's folder watcher died: reconnect to get a new one.
+    watch_lost: AtomicBool,
+    /// > 0 while we enumerate folders on purpose (see `fetch_placeholders`).
+    own_listing: AtomicUsize,
 }
 
 fn unix_now() -> i64 {
@@ -172,8 +192,51 @@ impl Engine {
         path
     }
 
+    /// Whether the engine itself is removing or renaming `rel` (or a folder it is in).
     fn is_ours(&self, rel: &str) -> bool {
-        self.ours.lock().unwrap().contains(&rel.to_lowercase())
+        let ours = self.ours.lock().unwrap();
+        if ours.is_empty() {
+            return false;
+        }
+        let rel = rel.to_lowercase();
+        let mut cut = rel.len();
+        loop {
+            if ours.contains(&rel[..cut]) {
+                return true;
+            }
+            match rel[..cut].rfind('/') {
+                Some(i) => cut = i,
+                None => return false,
+            }
+        }
+    }
+
+    fn stopping(&self) -> bool {
+        *self.stop.borrow()
+    }
+
+    /// Runs a network call, giving up as soon as the engine is told to stop.
+    fn net<T>(&self, fut: impl Future<Output = Result<T, RemoteError>>) -> Result<T, RemoteError> {
+        let mut stop = self.stop.subscribe();
+        self.rt.block_on(async {
+            tokio::select! {
+                r = fut => r,
+                _ = stop.wait_for(|s| *s) => Err(RemoteError::Other("cancelled: nasyncloud is stopping".into())),
+            }
+        })
+    }
+
+    /// Runs `f`, which enumerates folders on purpose (see `fetch_placeholders`).
+    fn listing<T>(&self, f: impl FnOnce() -> T) -> T {
+        self.own_listing.fetch_add(1, Ordering::SeqCst);
+        let out = f();
+        self.own_listing.fetch_sub(1, Ordering::SeqCst);
+        out
+    }
+
+    /// Never sent to the NAS, nor brought from it: shell litter and the user's exclusions.
+    fn ignored(&self, rel: &str, is_dir: bool) -> bool {
+        local_only(remote::split(rel).1) || self.excludes.matches(rel, is_dir)
     }
 
     /// Runs `f` with the given items marked as "being changed by the engine".
@@ -190,6 +253,21 @@ impl Engine {
 
     fn enqueue(&self, path: PathBuf, delay: Duration) {
         self.queue.lock().unwrap().insert(path, Instant::now() + delay);
+    }
+
+    /// Asks the worker to compare `rel` with the NAS, unless that was done
+    /// (or asked) within `dir_ttl`.
+    fn poke_if_stale(&self, rel: &str) {
+        if !self.online.load(Ordering::SeqCst) {
+            return; // the next pass (every 15 s while offline) will do
+        }
+        let mut polled = self.polled.lock().unwrap();
+        if polled.get(rel).is_some_and(|t| t.elapsed() < self.dir_ttl) {
+            return;
+        }
+        polled.insert(rel.to_string(), Instant::now());
+        drop(polled);
+        self.poke.lock().unwrap().insert(rel.to_string());
     }
 
     fn part_name(&self) -> String {
@@ -248,13 +326,16 @@ impl Engine {
             return Ok(());
         }
         let Ok(meta) = fs::symlink_metadata(path) else { return Ok(()) }; // gone again
+        if self.excludes.matches(&rel, meta.is_dir()) {
+            return Ok(()); // stays on this computer only
+        }
         let attrs = meta.file_attributes();
         let local = inspect(path, meta.len())?;
 
         if meta.is_dir() {
             if !local.placeholder {
                 // A folder created here: create it on the NAS and adopt it.
-                self.rt.block_on(async {
+                self.net(async {
                     self.ensure_parents(&rel).await?;
                     self.remote.mkdir(&rel).await
                 })?;
@@ -290,7 +371,7 @@ impl Engine {
             Placeholder::open(path)?.hydrate(..)?;
         }
         let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or_else(unix_now, |d| d.as_secs() as i64);
-        let outcome = self.rt.block_on(async {
+        let outcome = self.net(async {
             self.ensure_parents(&rel).await?;
             if let Some(current) = self.remote.stat(&rel).await? {
                 let ours = !current.is_dir && local.base.as_ref().is_some_and(|b| b.same(&current.version));
@@ -341,10 +422,19 @@ impl Engine {
     fn hydrate_tree(&self, dir: &Path) {
         let mut stack = vec![dir.to_path_buf()];
         while let Some(d) = stack.pop() {
+            if self.stopping() {
+                return;
+            }
             // Enumerating makes Windows ask us for the folder's content if needed.
-            let Ok(entries) = fs::read_dir(&d) else { continue };
-            for entry in entries.flatten() {
+            let Ok(entries) = self.listing(|| fs::read_dir(&d).map(|it| it.flatten().collect::<Vec<_>>())) else { continue };
+            for entry in entries {
+                if self.stopping() {
+                    return;
+                }
                 let (path, Ok(meta)) = (entry.path(), entry.metadata()) else { continue };
+                if self.rel(&path).is_some_and(|r| self.ignored(&r, meta.is_dir())) {
+                    continue;
+                }
                 if meta.is_dir() {
                     stack.push(path);
                 } else if inspect(&path, meta.len()).is_ok_and(|l| l.placeholder && l.in_sync && !l.hydrated) {
@@ -366,7 +456,7 @@ impl Engine {
         if !populated(&dir) {
             return Ok(Vec::new());
         }
-        let entries = match self.rt.block_on(self.remote.list(rel)) {
+        let entries = match self.net(self.remote.list(rel)) {
             Ok(e) => e,
             Err(RemoteError::NotFound) => return Ok(Vec::new()), // the parent's pass deals with it
             Err(e) => {
@@ -378,11 +468,16 @@ impl Engine {
         };
         self.online.store(true, Ordering::SeqCst);
         self.known_dirs.lock().unwrap().insert(rel.to_string());
+        self.polled.lock().unwrap().insert(rel.to_string(), Instant::now());
+        let entries: Vec<Entry> = entries.into_iter().filter(|e| !self.excludes.matches(&remote::join(rel, &e.name), e.is_dir)).collect();
         let by_name: HashMap<&str, &Entry> = entries.iter().map(|e| (e.name.as_str(), e)).collect();
         let pinned_dir = fs::metadata(&dir).is_ok_and(|m| m.file_attributes() & ATTR_PINNED != 0);
         let mut seen = HashSet::new();
         let mut sub = Vec::new();
         for item in fs::read_dir(&dir)?.flatten() {
+            if self.stopping() {
+                return Ok(Vec::new());
+            }
             let name = item.file_name().to_string_lossy().into_owned();
             let path = item.path();
             let child = remote::join(rel, &name);
@@ -392,12 +487,19 @@ impl Engine {
             }
             let Ok(meta) = item.metadata() else { continue };
             let Ok(local) = inspect(&path, meta.len()) else { continue }; // busy: next time
+            if self.excludes.matches(&child, meta.is_dir()) {
+                // Excluded after it was synced: what only mirrors the NAS goes
+                // away (it stays there), anything that exists only here stays.
+                if local.placeholder && local.in_sync && self.prune(&path, &child) {
+                    log::info!("{child} is excluded: no longer shown here (it stays on the NAS)");
+                }
+                continue;
+            }
             match by_name.get(name.as_str()) {
                 Some(e) if local.placeholder => {
                     if e.is_dir != meta.is_dir() {
                         // A file became a folder or vice versa.
-                        if local.in_sync && !self.has_unsynced(&path) {
-                            self.remove_local(&path, &child);
+                        if local.in_sync && self.prune(&path, &child) {
                             seen.remove(&name.to_lowercase());
                         }
                     } else if meta.is_dir() {
@@ -419,9 +521,9 @@ impl Engine {
                     }
                 }
                 None if local.placeholder && local.in_sync => {
-                    // Deleted on the NAS (unless something below still has to be uploaded).
-                    if !self.has_unsynced(&path) {
-                        self.remove_local(&path, &child);
+                    // Deleted on the NAS. Local changes below it are kept (and sent again).
+                    if self.prune(&path, &child) {
+                        log::info!("{child} was removed on the NAS");
                     }
                 }
                 // Plain local file, or local edits pending: the upload path handles it.
@@ -433,6 +535,9 @@ impl Engine {
             }
         }
         for e in entries.iter().filter(|e| usable_name(&e.name) && !seen.contains(&e.name.to_lowercase())) {
+            if self.stopping() {
+                break;
+            }
             match create_info(e).create(&dir) {
                 Ok(_) if pinned_dir && !e.is_dir => {
                     let path = dir.join(&e.name);
@@ -447,86 +552,170 @@ impl Engine {
         Ok(sub)
     }
 
-    /// Whether anything below `path` still has to be uploaded.
-    fn has_unsynced(&self, path: &Path) -> bool {
-        let Ok(meta) = fs::symlink_metadata(path) else { return false };
+    /// Removes what below `path` only mirrors the NAS (placeholders in sync,
+    /// folders never opened) and keeps whatever exists only here: local
+    /// changes are queued to be sent again, excluded items stay as they are.
+    /// Returns whether `path` itself is gone.
+    fn prune(&self, path: &Path, rel: &str) -> bool {
+        let Ok(meta) = fs::symlink_metadata(path) else { return true };
+        let keep = |is_dir: bool| {
+            if !self.ignored(rel, is_dir) {
+                self.enqueue(path.to_path_buf(), SETTLE);
+            }
+            false
+        };
         if !meta.is_dir() {
-            return !inspect(path, meta.len()).is_ok_and(|l| l.placeholder && l.in_sync);
+            let mirror = local_only(remote::split(rel).1) || inspect(path, meta.len()).is_ok_and(|l| l.placeholder && l.in_sync);
+            return if mirror { self.remove_ours(path, rel, false) } else { keep(false) };
         }
-        if !populated(path) {
-            return false; // never opened: nothing local in there
+        if !inspect(path, 0).is_ok_and(|l| l.placeholder) {
+            return keep(true); // a folder made here
         }
-        fs::read_dir(path).map(|it| it.flatten().any(|e| !local_only(&e.file_name().to_string_lossy()) && self.has_unsynced(&e.path()))).unwrap_or(true)
+        if populated(path) {
+            let Ok(items) = fs::read_dir(path) else { return false };
+            let mut all = true;
+            for item in items.flatten() {
+                let name = item.file_name().to_string_lossy().into_owned();
+                all &= self.prune(&item.path(), &remote::join(rel, &name));
+            }
+            if !all {
+                return false;
+            }
+        }
+        // Empty now, or never opened (then nothing here was ever put in it).
+        self.remove_ours(path, rel, true)
     }
 
-    /// Removes a local item because it no longer exists on the NAS.
-    fn remove_local(&self, path: &Path, rel: &str) {
-        let res = self.as_ours(&[rel], || if path.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) });
+    /// Deletes a local item without the deletion reaching the NAS.
+    fn remove_ours(&self, path: &Path, rel: &str, dir: bool) -> bool {
+        let res = self.as_ours(&[rel], || {
+            if !dir {
+                fs::remove_file(path)
+            } else {
+                fs::remove_dir(path).or_else(|_| self.listing(|| fs::remove_dir_all(path)))
+            }
+        });
         match res {
-            Ok(()) => log::info!("{rel} was removed on the NAS"),
-            Err(e) => log::debug!("could not remove {rel} yet: {e}"),
-        }
-    }
-
-    fn poll_tree(&self) {
-        let mut stack = vec![String::new()];
-        while let Some(rel) = stack.pop() {
-            match self.poll_dir(&rel) {
-                Ok(children) => stack.extend(children),
-                Err(e) => log::debug!("{e:#}"),
+            Ok(()) => true,
+            Err(e) => {
+                log::debug!("could not remove {rel} yet: {e}");
+                false
             }
         }
     }
 
-    /// Background loop: handles queued local changes and polls the NAS.
-    fn work(&self, stop: &AtomicBool) {
-        let mut next_poll = Instant::now() + Duration::from_secs(2);
-        while !stop.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(500));
-            let now = Instant::now();
-            let mut due: Vec<PathBuf> = {
+    /// Sends queued local changes, for at most `QUEUE_SLICE`. Returns whether
+    /// some that were due had to wait for the next turn.
+    fn handle_queue(&self) -> bool {
+        let started = Instant::now();
+        let mut due: Vec<PathBuf> = {
+            let mut queue = self.queue.lock().unwrap();
+            let due: Vec<PathBuf> = queue.iter().filter(|(_, at)| **at <= started).map(|(p, _)| p.clone()).collect();
+            due.iter().for_each(|p| {
+                queue.remove(p);
+            });
+            due
+        };
+        due.sort(); // folders before what is inside them
+        for (i, path) in due.iter().enumerate() {
+            if self.stopping() || started.elapsed() >= QUEUE_SLICE {
                 let mut queue = self.queue.lock().unwrap();
-                let due: Vec<PathBuf> = queue.iter().filter(|(_, at)| **at <= now).map(|(p, _)| p.clone()).collect();
-                due.iter().for_each(|p| {
-                    queue.remove(p);
-                });
-                due
-            };
-            due.sort(); // folders before what is inside them
-            for path in due {
-                match self.process_local(&path) {
-                    Ok(()) => {
-                        self.failures.lock().unwrap().remove(&path);
+                for p in &due[i..] {
+                    queue.entry(p.clone()).or_insert(started);
+                }
+                return true;
+            }
+            match self.process_local(path) {
+                Ok(()) => {
+                    self.failures.lock().unwrap().remove(path);
+                }
+                // Interrupted by `stop`: left for next time, not an error.
+                Err(_) if self.stopping() => {
+                    self.queue.lock().unwrap().entry(path.clone()).or_insert(started);
+                }
+                Err(e) => {
+                    // Typically: the file is still open in an application, or the NAS is away.
+                    let attempts = {
+                        let mut failures = self.failures.lock().unwrap();
+                        let n = failures.entry(path.clone()).or_insert((0, String::new()));
+                        n.0 += 1;
+                        n.1 = format!("{e:#}");
+                        n.0
+                    };
+                    let delay = Duration::from_secs((10u64 << attempts.min(6)).min(600));
+                    if attempts == 1 || attempts % 10 == 0 {
+                        log::warn!("{}: {e:#} (retrying in {}s)", path.display(), delay.as_secs());
                     }
-                    Err(e) => {
-                        // Typically: the file is still open in an application, or the NAS is away.
-                        let attempts = {
-                            let mut failures = self.failures.lock().unwrap();
-                            let n = failures.entry(path.clone()).or_insert((0, String::new()));
-                            n.0 += 1;
-                            n.1 = format!("{e:#}");
-                            n.0
-                        };
-                        let delay = Duration::from_secs((10u64 << attempts.min(6)).min(600));
-                        if attempts == 1 || attempts % 10 == 0 {
-                            log::warn!("{}: {e:#} (retrying in {}s)", path.display(), delay.as_secs());
-                        }
-                        self.enqueue(path, delay);
+                    self.enqueue(path.clone(), delay);
+                }
+            }
+        }
+        false
+    }
+
+    /// Walks the populated folders comparing them with the NAS, for at most
+    /// `POLL_SLICE`; `pass` holds the folders still to visit.
+    fn poll_slice(&self, pass: &mut Vec<String>) {
+        let started = Instant::now();
+        while let Some(rel) = pass.pop() {
+            match self.poll_dir(&rel) {
+                Ok(children) => pass.extend(children),
+                Err(e) => {
+                    log::debug!("{e:#}");
+                    if !self.online.load(Ordering::SeqCst) {
+                        pass.clear(); // no point asking about the other folders now
                     }
                 }
             }
+            if self.stopping() || started.elapsed() >= POLL_SLICE {
+                return;
+            }
+        }
+    }
+
+    /// Background loop: sends local changes and keeps the folder in step with
+    /// the NAS, in short turns so neither starves the other and `stop` is
+    /// noticed within moments.
+    fn work(&self) -> Exit {
+        let mut pass: Vec<String> = Vec::new();
+        let mut next_pass = Instant::now() + Duration::from_secs(2);
+        while !self.stopping() {
+            if self.watch_lost.swap(false, Ordering::SeqCst) {
+                return Exit::Rewatch;
+            }
+            let more = self.handle_queue();
+            // Folders that were just opened, or that we want to look at again.
             let poked: Vec<String> = self.poke.lock().unwrap().drain().collect();
             for rel in poked {
+                if self.stopping() {
+                    break;
+                }
                 if let Err(e) = self.poll_dir(&rel) {
                     log::debug!("{e:#}");
                 }
             }
-            if Instant::now() >= next_poll {
-                self.poll_tree();
-                next_poll = Instant::now() + if self.online.load(Ordering::SeqCst) { self.poll_interval } else { Duration::from_secs(15) };
+            if pass.is_empty() && Instant::now() >= next_pass {
+                pass.push(String::new());
+            }
+            if !pass.is_empty() {
+                self.poll_slice(&mut pass);
+                if pass.is_empty() {
+                    next_pass = Instant::now() + if self.online.load(Ordering::SeqCst) { self.poll_interval } else { Duration::from_secs(15) };
+                }
+            }
+            if !more && pass.is_empty() {
+                self.sleep(Duration::from_millis(500));
             }
         }
+        Exit::Stop
     }
+}
+
+/// Why the worker loop returned.
+enum Exit {
+    Stop,
+    /// The folder watcher died: reconnect to get a new one.
+    Rewatch,
 }
 
 /// The callbacks Windows invokes on us.
@@ -545,7 +734,8 @@ impl SyncFilter for Hooks {
             return Ok(());
         }
         let expected = from_blob(request.file_blob());
-        let res: Result<(), RemoteError> = eng.rt.block_on(async {
+        // Cancelled by `stop`: the program reading the file then gets an error.
+        let res: Result<(), RemoteError> = eng.net(async {
             let mut dl = eng.remote.open_range(&rel, start, Some(end)).await?;
             let etag_differs = match (expected.as_ref().and_then(|v| v.etag.as_deref()), dl.etag.as_deref()) {
                 (Some(a), Some(b)) => norm_etag(a) != norm_etag(b),
@@ -602,7 +792,15 @@ impl SyncFilter for Hooks {
     fn fetch_placeholders(&self, request: Request, ticket: ticket::FetchPlaceholders, _info: info::FetchPlaceholders) -> CResult<()> {
         let eng = &self.0;
         let rel = eng.rel(&request.path()).ok_or(CloudErrorKind::NotUnderSyncRoot)?;
-        let entries = match eng.rt.block_on(eng.remote.list(&rel)) {
+        // The library's folder watcher, after an overflow (thousands of files
+        // copied at once), walks the whole folder, which would open every
+        // folder of the NAS. Refusing ends that walk; the watcher is then
+        // reconnected and the next pass over the open folders picks the changes up.
+        if request.process().is_some_and(|p| p.id() == std::process::id()) && eng.own_listing.load(Ordering::SeqCst) == 0 {
+            log::debug!("not opening {rel:?} for the folder watcher's rescan");
+            return Err(CloudErrorKind::Unsuccessful);
+        }
+        let entries = match eng.net(eng.remote.list(&rel)) {
             Ok(entries) => entries,
             Err(RemoteError::NotFound) => Vec::new(), // gone on the NAS: an empty folder, removed at the next poll
             Err(e) => {
@@ -613,6 +811,7 @@ impl SyncFilter for Hooks {
         eng.known_dirs.lock().unwrap().insert(rel.clone());
         let mut infos: Vec<PlaceholderCreateInfo> = entries
             .iter()
+            .filter(|e| !eng.excludes.matches(&remote::join(&rel, &e.name), e.is_dir))
             .filter(|e| {
                 let ok = usable_name(&e.name);
                 if !ok && !remote::is_part_file(&e.name) {
@@ -633,7 +832,7 @@ impl SyncFilter for Hooks {
         let eng = &self.0;
         if let Some(rel) = eng.rel(&request.path()).filter(|r| !r.is_empty() && !eng.is_ours(r)) {
             if !local_only(remote::split(&rel).1) {
-                if let Err(e) = eng.rt.block_on(eng.remote.delete(&rel, info.is_directory())) {
+                if let Err(e) = eng.net(eng.remote.delete(&rel, info.is_directory())) {
                     log::warn!("cannot delete {rel} on the NAS: {e}");
                     return Err(cloud_error(&e));
                 }
@@ -651,7 +850,7 @@ impl SyncFilter for Hooks {
         let is_dir = info.is_directory();
         let res = match (&from, &to) {
             (Some(f), _) if eng.is_ours(f) => Ok(()),
-            (Some(f), Some(t)) => eng.rt.block_on(async {
+            (Some(f), Some(t)) => eng.net(async {
                 eng.ensure_parents(t).await?;
                 match eng.remote.rename(f, t, is_dir, true).await {
                     // Never made it to the NAS: it will be uploaded from its new place.
@@ -660,7 +859,7 @@ impl SyncFilter for Hooks {
                 }
             }),
             // Moved out of the sync folder (the Recycle Bin, for instance).
-            (Some(f), None) => eng.rt.block_on(eng.remote.delete(f, is_dir)),
+            (Some(f), None) => eng.net(eng.remote.delete(f, is_dir)),
             // Moved in: it shows up as a new item and gets uploaded.
             (None, _) => Ok(()),
         };
@@ -684,15 +883,40 @@ impl SyncFilter for Hooks {
         ticket.pass().map_err(|_| CloudErrorKind::Unsuccessful)
     }
 
+    /// Something was opened: Explorer showing a folder, a program opening a
+    /// file. That folder is compared with the NAS again soon (at most once
+    /// per `dir_ttl`), so what was added there from elsewhere shows up
+    /// without waiting for the next full pass.
+    fn opened(&self, request: Request, _info: info::Opened) {
+        let eng = &self.0;
+        if request.process().is_some_and(|p| p.id() == std::process::id()) {
+            return; // our own work
+        }
+        let path = request.path();
+        let Some(rel) = eng.rel(&path) else { return };
+        let dir = if path.is_dir() { rel } else { remote::split(&rel).0.to_string() };
+        if !eng.excludes.matches(&dir, true) {
+            eng.poke_if_stale(&dir);
+        }
+    }
+
     /// Files were created, modified, renamed or (un)pinned in the sync folder.
     fn state_changed(&self, event: StateWatchEvent) {
+        let eng = &self.0;
         match event {
             StateWatchEvent::Changed(paths) => {
                 for path in paths {
-                    self.0.enqueue(path, SETTLE);
+                    // Inside an excluded folder (`npm install` writes thousands): nothing to do.
+                    let excluded = eng.rel(&path).is_some_and(|r| eng.excludes.matches(remote::split(&r).0, true));
+                    if !excluded {
+                        eng.enqueue(path, SETTLE);
+                    }
                 }
             }
-            StateWatchEvent::Stopped(e) => log::error!("the folder watcher stopped ({e}); restart nasyncloud to pick up local changes again"),
+            StateWatchEvent::Stopped(e) => {
+                log::warn!("the folder watcher stopped ({e}); reconnecting");
+                eng.watch_lost.store(true, Ordering::SeqCst);
+            }
         }
     }
 }
@@ -707,7 +931,6 @@ fn sync_root_id(cfg: &Config) -> Result<SyncRootId> {
 /// uploads local changes and polls the NAS. Both live on one dedicated thread.
 pub struct Mounted {
     engine: Arc<Engine>,
-    stop: Arc<AtomicBool>,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     ended: Arc<watch::Sender<bool>>,
 }
@@ -760,18 +983,25 @@ impl Mounted {
             poke: Mutex::default(),
             known_dirs: Mutex::new(HashSet::from([String::new()])),
             online: AtomicBool::new(online),
+            excludes: cfg.excludes(),
+            polled: Mutex::default(),
+            dir_ttl: Duration::from_secs(cfg.dir_ttl_secs.max(5)),
+            stop: watch::channel(false).0,
+            watch_lost: AtomicBool::new(false),
+            own_listing: AtomicUsize::new(0),
         });
-        let stop = Arc::new(AtomicBool::new(false));
+        if !engine.excludes.is_empty() {
+            log::info!("kept on this computer only: {}", cfg.exclude.join(", "));
+        }
         let ended = Arc::new(watch::channel(false).0);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<()>>();
         let worker = {
-            let (engine, stop, ended, root) = (engine.clone(), stop.clone(), ended.clone(), root.clone());
+            let (engine, ended, root) = (engine.clone(), ended.clone(), root.clone());
             std::thread::Builder::new().name("nasyncloud-sync".into()).spawn(move || {
                 match Session::new().connect(&root, Hooks(engine.clone())) {
                     Ok(connection) => {
                         let _ = ready_tx.send(Ok(()));
-                        engine.work(&stop);
-                        drop(connection);
+                        engine.run(&root, connection);
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(anyhow::Error::new(e).context("cannot connect to the sync folder")));
@@ -782,7 +1012,7 @@ impl Mounted {
         };
         tokio::task::spawn_blocking(move || ready_rx.recv()).await?.map_err(|_| anyhow!("the sync thread stopped unexpectedly"))??;
         log::info!("{} is available in {}", cfg.url, root.display());
-        Ok(Self { engine, stop, worker: Mutex::new(Some(worker)), ended })
+        Ok(Self { engine, worker: Mutex::new(Some(worker)), ended })
     }
 
     pub async fn wait_ended(&self) {
@@ -790,11 +1020,19 @@ impl Mounted {
         let _ = rx.wait_for(|done| *done).await;
     }
 
+    /// Stops the worker (it cancels what it is sending or downloading) and
+    /// disconnects the folder. Never waits more than `STOP_WAIT`: a thread
+    /// stuck in the system is left to finish on its own.
     pub async fn stop(&self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.engine.stop.send_replace(true);
         let worker = self.worker.lock().unwrap().take();
         if let Some(w) = worker {
-            let _ = tokio::task::spawn_blocking(move || w.join()).await;
+            let mut ended = self.ended.subscribe();
+            if tokio::time::timeout(STOP_WAIT, ended.wait_for(|done| *done)).await.is_ok() {
+                let _ = tokio::task::spawn_blocking(move || w.join()).await;
+            } else {
+                log::warn!("the sync folder did not let go within {}s; carrying on without it", STOP_WAIT.as_secs());
+            }
         }
         let pending = self.engine.queue.lock().unwrap().len();
         if pending > 0 {
@@ -829,8 +1067,46 @@ impl Mounted {
     }
 
     pub async fn refresh(&self, rel: &str) -> Result<()> {
+        self.engine.polled.lock().unwrap().insert(rel.to_string(), Instant::now());
         self.engine.poke.lock().unwrap().insert(rel.to_string());
         Ok(())
+    }
+}
+
+impl Engine {
+    /// The sync thread: does the work, reconnecting whenever the library's
+    /// folder watcher dies (without it, local changes go unnoticed until the
+    /// next pass over the folders).
+    fn run(self: &Arc<Self>, root: &Path, connection: cloud_filter::root::Connection<Hooks>) {
+        let mut connection = Some(connection);
+        let mut last: Option<Instant> = None;
+        while let Exit::Rewatch = self.work() {
+            // Not more than twice a minute if it keeps dying.
+            if let Some(t) = last {
+                if self.sleep(Duration::from_secs(30).saturating_sub(t.elapsed())) {
+                    break;
+                }
+            }
+            last = Some(Instant::now());
+            drop(connection.take());
+            match Session::new().connect(root, Hooks(self.clone())) {
+                Ok(c) => {
+                    connection = Some(c);
+                    log::info!("folder watcher restarted");
+                }
+                Err(e) => {
+                    log::error!("cannot reconnect the sync folder ({e}); trying again");
+                    self.watch_lost.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+        drop(connection);
+    }
+
+    /// Waits, waking up early when told to stop. Returns whether it was.
+    fn sleep(&self, d: Duration) -> bool {
+        let mut stop = self.stop.subscribe();
+        self.rt.block_on(async { tokio::time::timeout(d, stop.wait_for(|s| *s)).await.is_ok() })
     }
 }
 
@@ -842,30 +1118,36 @@ impl Engine {
         if !meta.is_dir() {
             bail!("{rel} is not a folder");
         }
-        let this = self.view(remote::split(rel).1, &dir, &meta);
+        let this = self.view(rel, &dir, &meta);
         let mut entries = Vec::new();
         // Enumerating an unopened folder makes Windows ask us for its content.
-        for item in fs::read_dir(&dir)?.flatten() {
+        let items: Vec<fs::DirEntry> = self.listing(|| fs::read_dir(&dir).map(|it| it.flatten().collect()))?;
+        for item in items {
             let name = item.file_name().to_string_lossy().into_owned();
             if let Ok(m) = item.metadata() {
-                entries.push(self.view(&name, &item.path(), &m));
+                entries.push(self.view(&remote::join(rel, &name), &item.path(), &m));
             }
         }
         Ok(Listing { path: rel.to_string(), this, entries })
     }
 
-    fn view(&self, name: &str, path: &Path, meta: &fs::Metadata) -> EntryView {
+    fn view(&self, rel: &str, path: &Path, meta: &fs::Metadata) -> EntryView {
+        let name = remote::split(rel).1;
+        let ignored = !rel.is_empty() && self.ignored(rel, meta.is_dir());
         let attrs = meta.file_attributes();
         let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
         let error = self.failures.lock().unwrap().get(path).map(|(_, e)| e.clone());
         let pinned = if attrs & ATTR_PINNED != 0 { "yes" } else { "no" };
         let mut v = EntryView { name: name.to_string(), dir: meta.is_dir(), size: 0, mtime, state: "folder".into(), pinned: pinned.into(), cached: 0, files: 0, files_cached: 0, pending: 0, error };
         if v.dir {
+            if ignored {
+                v.state = "local".into();
+            }
             return v;
         }
         v.size = meta.len();
         let local = inspect(path, meta.len()).ok();
-        let state = if local_only(name) {
+        let state = if ignored {
             "local"
         } else {
             match &local {
@@ -890,7 +1172,8 @@ impl Engine {
             opts.recurse();
         }
         let mut ph = Placeholder::options().write_access().open(&path)?;
-        ph.mark_pin(if on { PinState::Pinned } else { PinState::Unspecified }, opts)?;
+        // Recursive pinning may make Windows open folders on our behalf.
+        self.listing(|| ph.mark_pin(if on { PinState::Pinned } else { PinState::Unspecified }, opts))?;
         if on {
             // The worker sees the pinned attribute and downloads what is missing.
             self.enqueue(path, Duration::ZERO);
@@ -905,7 +1188,8 @@ impl Engine {
         if path.is_dir() {
             opts.recurse();
         }
-        Placeholder::options().write_access().open(&path)?.mark_pin(PinState::Unspecified, opts)?;
+        let mut ph = Placeholder::options().write_access().open(&path)?;
+        self.listing(|| ph.mark_pin(PinState::Unspecified, opts))?;
         let mut freed = 0;
         let mut stack = vec![path];
         while let Some(p) = stack.pop() {

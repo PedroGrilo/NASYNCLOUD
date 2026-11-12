@@ -56,6 +56,10 @@ pub struct Config {
     /// Port of the local web interface (http://127.0.0.1:PORT).
     #[serde(default = "default_ui_port")]
     pub ui_port: u16,
+    /// Files and folders that stay on this computer only (see `exclude.rs`
+    /// for the syntax), e.g. `[".git", "node_modules", "*.tmp"]`.
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 fn default_cache_max() -> String {
@@ -100,6 +104,7 @@ impl Config {
             readahead_mb: default_readahead(),
             atomic_upload: true,
             ui_port: DEFAULT_UI_PORT,
+            exclude: Vec::new(),
         }
     }
 
@@ -141,6 +146,10 @@ impl Config {
             None => project_dirs()?.cache_dir().to_path_buf(),
         };
         Ok(base.join(format!("{:016x}", fnv1a(format!("{}\n{}", self.url.trim_end_matches('/'), self.username).as_bytes()))))
+    }
+
+    pub fn excludes(&self) -> crate::exclude::Excludes {
+        crate::exclude::Excludes::new(&self.exclude)
     }
 
     pub fn cache_max_bytes(&self) -> Result<u64> {
@@ -291,6 +300,7 @@ mod tests {
         let cfg: Config = toml::from_str("url = \"http://nas:5005/x\"\nusername = \"pedro\"\nmountpoint = \"~/NAS\"\n").unwrap();
         assert_eq!(cfg.dir_ttl_secs, 30);
         assert!(cfg.atomic_upload);
+        assert!(cfg.exclude.is_empty());
         assert_eq!(cfg.cache_max_bytes().unwrap(), 20 << 30);
         let again: Config = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
         assert_eq!(again.url, cfg.url);

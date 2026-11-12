@@ -177,8 +177,9 @@ impl Service {
         let result = loop {
             match Mounted::start(&cfg).await {
                 Ok(m) => break Ok(m),
-                // A session that just ended may still be letting go of the local index.
-                Err(e) if attempt < 15 && format!("{e:#}").to_lowercase().contains("already open") => {
+                // A session that just ended may still be letting go of the
+                // local index (Linux/macOS) or of the sync folder (Windows).
+                Err(e) if attempt < 15 && ["already open", "already connected"].iter().any(|m| format!("{e:#}").to_lowercase().contains(m)) => {
                     attempt += 1;
                     tokio::time::sleep(Duration::from_millis(300)).await;
                 }
@@ -266,6 +267,8 @@ impl Service {
         }
         cfg.url = cfg.url.trim().to_string();
         cfg.username = cfg.username.trim().to_string();
+        let mut seen = std::collections::HashSet::new();
+        cfg.exclude = cfg.exclude.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty() && seen.insert(p.to_lowercase())).collect();
         WebDav::new(&cfg.url, &cfg.username, "", false).map_err(|e| anyhow!("{e}"))?;
         cfg.cache_max_bytes()?;
         let mut password = password.filter(|p| !p.is_empty());
@@ -321,7 +324,7 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
         Config::load(cfg_path)?; // fail early with the real reason
     }
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(async {
+    let out = rt.block_on(async {
         let svc = Service::new(cfg_path.to_path_buf(), mode);
         let port = svc.config().map_or(DEFAULT_UI_PORT, |c| c.ui_port);
         let ui = match crate::ui::serve(svc.clone(), port).await {
@@ -354,7 +357,10 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
         wait_for_exit(&svc).await;
         svc.stop_mount().await;
         Ok(())
-    })
+    });
+    // Do not hang on the way out because of a blocking call stuck in the system.
+    rt.shutdown_timeout(Duration::from_secs(5));
+    out
 }
 
 async fn wait_for_exit(svc: &Service) {

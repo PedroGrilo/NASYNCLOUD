@@ -1,11 +1,13 @@
 //! nasyncloud: files on demand for WebDAV NAS boxes.
 //!
 //! * `remote` / `webdav`: talking to the server.
+//! * `exclude`: what this computer keeps to itself (`.git`, `node_modules`...).
 //! * `vfs` (Linux/macOS): the on-demand engine behind the FUSE mount.
 //! * The Windows engine (Cloud Files API) lives in the binary crate.
 
 pub mod activity;
 pub mod config;
+pub mod exclude;
 pub mod remote;
 pub mod webdav;
 

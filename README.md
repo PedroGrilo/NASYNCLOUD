@@ -85,13 +85,16 @@ Click **Testar ligação** (Test connection), then **Guardar e ligar** (Save and
 | **Parcialmente aqui** (Partly here) | you opened part of it, like a video you started watching |
 | **Neste computador** (On this computer) | fully here; opens even without a connection |
 | **Por enviar** (Waiting to upload) | you changed it and it hasn't reached the NAS yet |
+| **Só neste computador** (Only on this computer) | excluded from sync (see below): it never goes to the NAS |
 
 - **Manter offline** (Keep offline): downloads everything and keeps it up to date, including new files that show up on the NAS.
 - **Libertar espaço** (Free up space): removes the copy on this computer and leaves the file visible in the folder.
 
 On Windows you can also do this from File Explorer: right-click → **Always keep on this device** or **Free up space**.
 
-**Quitting.** Use **Sair do NASYNCLOUD** (Quit NASYNCLOUD) in the gear menu. NASYNCLOUD only closes after it has uploaded anything still pending.
+**Leave things out.** In **Definições → Excluir da sincronização** (Settings → Exclude from sync) list what should stay on this computer only, for example `.git` and `node_modules` when you keep code projects on the NAS. Those never go to the NAS, and if the NAS already has them they no longer show up here (they stay untouched there). You can use plain names (matched anywhere, with everything inside), `*.log`, `build/` (folders only) or `/a/path/from/the/top`.
+
+**Quitting.** Use **Sair do NASYNCLOUD** (Quit NASYNCLOUD) in the gear menu. On a Mac it first finishes uploading anything still pending; on Windows, whatever is left is sent the next time NASYNCLOUD starts.
 
 ## Updates
 

@@ -107,13 +107,27 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config
 | `cache_max_size` | `"20G"` | Limite da cache (Linux/macOS). Acima disto, os ficheiros usados há mais tempo são libertados. Fixados e modificados nunca. |
 | `cache_dir` | pasta de cache do sistema | Onde ficam os dados descarregados e o índice. |
 | `dir_ttl_secs` | `30` | Quanto tempo uma listagem de pasta é usada antes de perguntar à NAS outra vez. |
-| `poll_interval_secs` | `300` | De quanto em quanto tempo as pastas fixadas (e, no Windows, todas as pastas já abertas) são comparadas com a NAS. |
+| `poll_interval_secs` | `300` | De quanto em quanto tempo as pastas fixadas (e, no Windows, todas as pastas já abertas) são comparadas com a NAS. No Windows, uma pasta que se abre no Explorador é relida ao fim de `dir_ttl_secs`, sem esperar por isto. |
 | `upload_delay_secs` | `2` | Pausa depois de fechar um ficheiro antes de o enviar. |
 | `parallel_uploads` | `2` | Uploads em simultâneo. |
 | `readahead_mb` | `8` | Quanto o download pode ir à frente da leitura. |
 | `atomic_upload` | `true` | Upload para nome temporário + renomear. Se a NAS não deixar, passa sozinho para upload direto. |
 | `accept_invalid_certs` | `false` | Aceitar certificados HTTPS que não se conseguem verificar. |
 | `ui_port` | `8730` | Porta da interface (`http://127.0.0.1:8730`). |
+| `exclude` | `[]` | O que fica só neste computador, por exemplo `[".git", "node_modules", "*.log"]`. Ver abaixo. |
+
+### Excluir da sincronização
+
+O que corresponder a uma destas regras nunca é enviado para a NAS e, se a NAS já o tiver, não aparece aqui (lá fica intacto). Quando uma pasta corresponde, tudo o que está dentro dela também. Maiúsculas e minúsculas tanto faz.
+
+| Regra | Apanha |
+|---|---|
+| `node_modules` | ficheiros e pastas com esse nome, em qualquer sítio |
+| `*.log`, `cache-?` | `*` é qualquer sequência de caracteres e `?` um só, dentro de um nome |
+| `build/` | só pastas com esse nome |
+| `/dist`, `Fotos/RAW` | um caminho a partir da pasta da NAS (há uma barra no início ou a meio); `**` vale por qualquer número de pastas (`src/**/gen`) |
+
+Ao mudar as regras, a ligação reinicia. O que passou a estar excluído e só era uma cópia da NAS desaparece daqui; o que tinha alterações feitas neste computador fica, só aqui. O que deixou de estar excluído é enviado. Apagar ou renomear um item excluído criado aqui nunca mexe na NAS.
 
 `-v` dá mais detalhe no registo.
 
@@ -127,10 +141,10 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config
 ## Limitações conhecidas
 
 - **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (offline dá "Host is down" no Linux e "Input/output error" no macOS). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
-- **Windows**: as alterações feitas na NAS por outros dispositivos só aparecem na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
+- **Windows**: as alterações feitas na NAS por outros dispositivos aparecem quando se abre a pasta (no máximo uma vez por `dir_ttl_secs`) ou na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
 - **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão File Provider assinada). O `du` não reflete o que está no disco (ver acima). Os atributos estendidos (etiquetas, quarentena, …) funcionam enquanto o NASYNCLOUD corre, mas ficam só em memória: não vão para a NAS e perdem-se quando ele para. O espaço livre que o Finder mostra é fixo (1 TiB), não o da NAS. Se o serviço morrer sem desmontar (por exemplo, `kill -9`), quem estiver a usar a pasta fica à espera até o NASYNCLOUD voltar a arrancar, e nessa altura o mount antigo é retirado.
 - Permissões (`chmod`/`chown`), links simbólicos e atributos estendidos não são guardados na NAS.
-- `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador.
+- `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador, tal como o que estiver em `exclude`.
 - Os uploads deixam temporariamente ficheiros `.*.nasyncloud-part` na NAS; restos com mais de um dia são apagados sozinhos.
 - As mensagens da secção Atividade (e da linha de comandos) estão em inglês.
 

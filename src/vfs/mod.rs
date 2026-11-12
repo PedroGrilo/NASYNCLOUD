@@ -26,6 +26,7 @@ use tokio::task::JoinHandle;
 
 use crate::activity::{Activity, Transfer};
 use crate::config::Config;
+use crate::exclude::Excludes;
 use crate::ranges::RangeSet;
 use crate::remote::{self, Quota, Remote, RemoteError, Version};
 use crate::store::{Record, Store};
@@ -98,6 +99,8 @@ pub struct VfsOptions {
     pub parallel_uploads: usize,
     pub readahead: u64,
     pub atomic_upload: bool,
+    /// What stays on this computer only: never uploaded, and hidden when the NAS has it.
+    pub excludes: Excludes,
 }
 
 impl VfsOptions {
@@ -111,6 +114,7 @@ impl VfsOptions {
             parallel_uploads: cfg.parallel_uploads.clamp(1, 16),
             readahead: cfg.readahead_mb.clamp(1, 1024) << 20,
             atomic_upload: cfg.atomic_upload,
+            excludes: cfg.excludes(),
         })
     }
 }
@@ -412,6 +416,19 @@ impl State {
         out
     }
 
+    /// Stays on this computer: shell litter, or excluded by the user (itself
+    /// or through a folder above it). Never sent to the NAS.
+    fn stays_local(&self, id: NodeId, excludes: &Excludes) -> bool {
+        let Some(n) = self.nodes.get(&id) else { return false };
+        if is_local_only_name(&n.name) {
+            return true;
+        }
+        if id == ROOT || excludes.is_empty() {
+            return false;
+        }
+        self.path(id).is_some_and(|p| excludes.matches(&p, n.kind == Kind::Dir))
+    }
+
     fn has_local_changes(&self, id: NodeId) -> bool {
         self.subtree(id).iter().any(|i| self.nodes.get(i).is_some_and(Node::local_change))
     }
@@ -493,7 +510,10 @@ impl Vfs {
         let store = Arc::new(Store::open(&opts.state_dir.join("index.redb"))?);
         let (records, next_id) = store.load()?;
         let mut st = State { nodes: HashMap::new(), next_id: next_id.max(2), cache_bytes: 0, jobs: HashMap::new(), uploading: 0, stale: HashSet::new(), gone: Vec::new() };
-        Self::rebuild(&mut st, records, &data_dir);
+        Self::rebuild(&mut st, records, &data_dir, &opts.excludes);
+        if !opts.excludes.is_empty() {
+            log::info!("some files and folders stay on this computer only (exclusions in the settings)");
+        }
         let vfs = Arc::new(Vfs {
             atomic_upload: AtomicBool::new(opts.atomic_upload),
             opts,
@@ -535,7 +555,7 @@ impl Vfs {
 
     /// Rebuilds the tree from the index and reconciles it with the cache files
     /// that actually survived on disk.
-    fn rebuild(st: &mut State, records: Vec<Record>, data_dir: &Path) {
+    fn rebuild(st: &mut State, records: Vec<Record>, data_dir: &Path, excludes: &Excludes) {
         for r in records {
             st.next_id = st.next_id.max(r.id + 1);
             st.nodes.insert(r.id, Node::from_record(r));
@@ -611,7 +631,8 @@ impl Vfs {
         st.cache_bytes = st.nodes.values().map(|n| n.cached.len()).sum();
         // Whatever still has to reach the server gets queued again.
         let now = Instant::now();
-        let pending: Vec<NodeId> = st.nodes.values().filter(|n| n.id != ROOT && n.local_change() && !is_local_only_name(&n.name)).map(|n| n.id).collect();
+        let mut pending: Vec<NodeId> = st.nodes.values().filter(|n| n.id != ROOT && n.local_change()).map(|n| n.id).collect();
+        pending.retain(|id| !st.stays_local(*id, excludes));
         for id in pending {
             st.jobs.insert(id, Job { due: now, attempts: 0 });
         }
@@ -809,7 +830,7 @@ impl Vfs {
 
     fn schedule(&self, st: &mut State, id: NodeId, delay: Duration) {
         let Some(n) = st.nodes.get(&id) else { return };
-        if n.unlinked || is_local_only_name(&n.name) {
+        if n.unlinked || st.stays_local(id, &self.opts.excludes) {
             return;
         }
         st.jobs.insert(id, Job { due: Instant::now() + delay, attempts: 0 });
@@ -1327,8 +1348,10 @@ impl Vfs {
         let st = self.st();
         let n = st.get(id)?;
         let pinned = st.pin_of(id);
+        let ex = &self.opts.excludes;
+        let local = st.stays_local(id, ex);
         if n.kind == Kind::File {
-            let state = if is_local_only_name(&n.name) {
+            let state = if local {
                 "local"
             } else if n.upload.is_some() {
                 "uploading"
@@ -1341,10 +1364,11 @@ impl Vfs {
             } else {
                 "partial"
             };
-            let pending = (n.local_change() && !is_local_only_name(&n.name)) as u64;
+            let pending = (n.local_change() && !local) as u64;
             return Ok(NodeStatus { dir: false, state: state.into(), pinned, size: n.size, cached: n.cached.len(), files: 1, files_cached: n.complete() as u64, pending, error: n.error.clone() });
         }
-        let mut s = NodeStatus { dir: true, state: "folder".into(), pinned, size: 0, cached: 0, files: 0, files_cached: 0, pending: 0, error: n.error.clone() };
+        let state = if local { "local" } else { "folder" };
+        let mut s = NodeStatus { dir: true, state: state.into(), pinned, size: 0, cached: 0, files: 0, files_cached: 0, pending: 0, error: n.error.clone() };
         for nid in st.subtree(id).into_iter().skip(1) {
             let Some(c) = st.nodes.get(&nid) else { continue };
             if c.kind == Kind::File {
@@ -1353,7 +1377,7 @@ impl Vfs {
                 s.files += 1;
                 s.files_cached += c.complete() as u64;
             }
-            s.pending += (c.local_change() && !is_local_only_name(&c.name)) as u64;
+            s.pending += (!local && c.local_change() && !st.stays_local(nid, ex)) as u64;
             if s.error.is_none() {
                 s.error = c.error.clone();
             }

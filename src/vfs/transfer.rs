@@ -360,11 +360,12 @@ impl Vfs {
             let st = &mut *guard;
             st.uploading = st.uploading.saturating_sub(1);
             let mut again = false;
+            let stays_local = st.stays_local(id, &self.opts.excludes);
             if let Some(n) = st.nodes.get_mut(&id) {
                 n.upload = None;
                 n.error = res.as_ref().err().map(|e| e.to_string());
                 // Modified again while it was being sent?
-                again = n.local_change() && !n.unlinked && n.writers == 0 && !is_local_only_name(&n.name);
+                again = n.local_change() && !n.unlinked && n.writers == 0 && !stays_local;
                 st.stale.insert(id);
             }
             match &res {

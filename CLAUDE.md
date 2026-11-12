@@ -34,6 +34,7 @@ Primeiro passo quando houver acesso a Windows ou à NAS real: `nasyncloud -v ui`
 src/
   lib.rs            biblioteca (o que os testes de integração usam)
   config.rs         Config (TOML), password (env → ficheiro → keyring), tamanhos, DEFAULT_UI_PORT
+  exclude.rs        Excludes: regras «fica só neste computador» (`.git`, `node_modules`, `*.log`, `build/`, `/caminho`)
   remote.rs         trait Remote (backend), Version/Entry/RemoteError, conflict_name(), timestamp()
   webdav.rs         implementação WebDAV (reqwest): PROPFIND, GET com Range, PUT, MKCOL, MOVE, DELETE
   ranges.rs         RangeSet: intervalos de bytes presentes na cache          [unix]
@@ -114,6 +115,9 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **Invalidar cache** cria uma nova geração do ficheiro (`<id>-<gen>`); nunca se altera a antiga, para o índice não mentir depois de um crash.
 - **fuser 0.18**: não usar `Session::spawn()`, porque tira o mount ao `SessionUnmounter`. Corre-se `session.run()` numa thread própria; o fim chega por um `watch::Receiver<bool>`.
 - **Windows**: os callbacks da Cloud Files correm em threads da própria API e usam `Handle::block_on`. As operações da interface (`browse`, `pin`, `free`) vão por `spawn_blocking`, porque listar uma pasta por abrir dispara um callback. A conexão vive na thread `nasyncloud-sync`.
+- **Windows, parar**: o trabalho de fundo (`Engine::work`) corre em fatias (`QUEUE_SLICE`, `POLL_SLICE`) e todas as chamadas à NAS passam por `Engine::net`, que as cancela quando `stop` é ligado. `Mounted::stop` espera no máximo `STOP_WAIT` (20 s). Não voltar a pôr ciclos longos sem olhar para `stopping()`: foi o encravamento em «A parar…».
+- **Windows, vigia de pastas**: o `cloud-filter` tem o seu próprio vigia (`ReadDirectoryChangesW`). Quando transborda, varre a pasta inteira com `read_dir`, o que abriria todas as pastas da NAS; por isso o `fetch_placeholders` recusa pedidos do nosso próprio processo, exceto dentro de `Engine::listing` (enumerações nossas de propósito). A recusa mata o vigia; `Engine::run` volta a ligar a pasta (no máximo duas vezes por minuto) e a volta seguinte apanha o que mudou. Qualquer `read_dir` novo de uma pasta que possa não estar aberta tem de ir dentro de `listing`.
+- **Windows, apagar cá sem apagar lá**: `as_ours` + `is_ours` (por prefixo: abrange o que está dentro). `prune` só apaga placeholders sincronizados e pastas nunca abertas; o resto fica e volta à fila.
 - **Interface**: todo o texto vindo da NAS entra no DOM como texto (função `h()`), nunca `innerHTML`, porque os nomes de ficheiros podem ter qualquer coisa. `[hidden]{display:none!important}` existe porque muitos componentes definem `display`. Em ecrãs estreitos a grelha usa `minmax(0,1fr)`, senão o menu alarga a página.
 - **Segurança da interface**: só 127.0.0.1, token no header `x-nasyncloud-token` (guardado em `ui.json`, 0600, mantido entre arranques), verificação do `Host` (421), CSP, corpo até 64 KiB, caminhos com `..` recusados.
 - **Testes**: o e2e usa as portas 5005 (rclone) e 18730 (interface); a demo usa 5007 e 18731. Nunca usar `pkill -f` com um padrão que apareça no próprio script: mata a shell que o corre.

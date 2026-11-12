@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{pattern, wait_for, TestServer, PASS, USER};
+use nasyncloud::exclude::Excludes;
 use nasyncloud::vfs::{NodeId, Pin, Vfs, VfsError, VfsOptions, ROOT};
 use nasyncloud::webdav::WebDav;
 
@@ -21,6 +22,7 @@ fn options(dir: &Path) -> VfsOptions {
         parallel_uploads: 2,
         readahead: 256 << 10,
         atomic_upload: true,
+        excludes: Excludes::default(),
     }
 }
 
@@ -389,5 +391,66 @@ async fn state_survives_a_restart() {
     poke(&vfs).await;
     assert!(wait_for(10, || srv.exists("pending.txt") && vfs.pending_uploads() == 0).await, "{:?}", vfs.info());
     assert_eq!(srv.read("pending.txt"), b"written before the restart");
+    vfs.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn excluded_items_stay_local() {
+    let srv = TestServer::start().await;
+    srv.write("proj/src/main.rs", b"fn main() {}");
+    srv.write("proj/node_modules/old/index.js", b"old"); // put there by another computer
+    srv.write("proj/debug.log", b"log");
+    let dir = tempfile::tempdir().unwrap();
+    let vfs = open(&srv, dir.path(), |o| o.excludes = Excludes::new(&["node_modules", "*.log", "/proj/build/"])).await;
+
+    // What the NAS has under excluded names is not shown.
+    let proj = id(&vfs, "proj").await;
+    assert_eq!(names(&vfs, proj).await, ["src"]);
+
+    // Excluded things made here stay here; the rest is uploaded as usual.
+    let nm = vfs.mkdir(proj, "node_modules").await.unwrap().id;
+    let pkg = vfs.mkdir(nm, "pkg").await.unwrap().id;
+    put(&vfs, pkg, "index.js", b"new").await;
+    put(&vfs, proj, "trace.LOG", b"t").await;
+    let build = vfs.mkdir(proj, "build").await.unwrap().id;
+    put(&vfs, build, "out.o", b"o").await;
+    let src = id(&vfs, "proj/src").await;
+    put(&vfs, src, "lib.rs", b"pub fn x() {}").await;
+    assert!(wait_for(10, || srv.exists("proj/src/lib.rs")).await);
+    assert!(wait_for(5, || vfs.pending_uploads() == 0).await, "{:?}", vfs.info());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!srv.exists("proj/node_modules/pkg"));
+    assert!(!srv.exists("proj/trace.LOG"));
+    assert!(!srv.exists("proj/build"));
+    assert_eq!(srv.read("proj/node_modules/old/index.js"), b"old");
+
+    // Shown as local, readable, and kept across listings of the folder.
+    assert_eq!(names(&vfs, proj).await, ["build", "node_modules", "src", "trace.LOG"]);
+    assert_eq!(vfs.status(nm).unwrap().state, "local");
+    let index = id(&vfs, "proj/node_modules/pkg/index.js").await;
+    assert_eq!(vfs.status(index).unwrap().state, "local");
+    assert_eq!(vfs.status(proj).unwrap().pending, 0);
+    assert_eq!(read_all(&vfs, index).await, b"new");
+
+    // Deleting excluded items never touches what the NAS has under that name.
+    vfs.unlink(pkg, "index.js").await.unwrap();
+    vfs.rmdir(nm, "pkg").await.unwrap();
+    vfs.rmdir(proj, "node_modules").await.unwrap();
+    assert!(srv.exists("proj/node_modules/old/index.js"));
+
+    // Renamed to a name that is not excluded: from then on it is synced.
+    vfs.rename(proj, "build", proj, "dist", false).await.unwrap();
+    assert!(wait_for(10, || srv.exists("proj/dist/out.o") && srv.read("proj/dist/out.o") == b"o").await);
+    assert!(wait_for(5, || vfs.pending_uploads() == 0).await, "{:?}", vfs.info());
+    vfs.shutdown().await;
+    drop(vfs);
+
+    // The rules change: what was kept here is now sent, and what is newly
+    // excluded disappears from here (it stays on the NAS).
+    let vfs = open(&srv, dir.path(), |o| o.excludes = Excludes::new(&["src"])).await;
+    let proj = id(&vfs, "proj").await;
+    assert!(wait_for(10, || srv.exists("proj/trace.LOG")).await);
+    assert!(!names(&vfs, proj).await.contains(&"src".to_string()));
+    assert!(srv.exists("proj/src/lib.rs"));
     vfs.shutdown().await;
 }
