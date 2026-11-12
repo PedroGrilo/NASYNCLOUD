@@ -14,7 +14,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v0.1.0, 2026-11-12)
+## Estado atual (v0.2.0, 2026-11-12)
 
 | Parte | Estado |
 |---|---|

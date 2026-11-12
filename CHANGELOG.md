@@ -1,6 +1,6 @@
 # Changelog
 
-## Por lançar
+## 0.2.0 — 2026-11-12
 
 - **macOS funciona e está testado** (macOS 27, Apple Silicon, macFUSE 5.5, motor kext): 28 testes e 63 verificações num mount real.
 - macOS: o mount passa a ser feito com `fuse_mount` + `Session::from_fd`, porque o `fuse_mount_compat25` usado pelo `fuser` 0.18 falha sempre no macFUSE 5.
