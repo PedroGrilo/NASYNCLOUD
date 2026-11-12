@@ -2,6 +2,10 @@
 
 ## 1.0.0 — 2026-11-12
 
+- **Atualizações automáticas** na app: verifica as Releases (`latest.json`) ao arrancar e a cada 6 horas, mostra uma notificação e um aviso no painel, e «Atualizar agora» descarrega, confirma a assinatura, instala e reinicia. O menu do ícone tem «Procurar atualizações».
+- **Windows: instalador** (`NASYNCLOUD-…-windows-x64-setup.exe`, por utilizador, sem administrador) em vez do zip.
+- O repositório passou a ser público.
+- Correções: o serviço abre a interface antes de ler o Porta-chaves (que pode ficar à espera de autorização); «Tentar de novo» no painel voltava a mostrar o painel sem arrancar o serviço.
 - **Novo nome: NASYNCLOUD** (antes nasdrive), com logótipo novo: uma nuvem com setas de sincronização. Binário `nasyncloud`, app `NASYNCLOUD.app`, repositório `PedroGrilo/NASYNCLOUD`. As definições, a cache e a password do Porta-chaves da versão anterior passam para o novo nome sozinhas, na primeira vez que corre.
 - **App de barra de menus / área de notificação** (`desktop/`, Tauri v2), como o OneDrive: o ícone abre um painel com o estado, as transferências em curso (com progresso) e as recentes, o espaço usado e um menu (abrir a interface completa numa janela, Definições, pausar, sair). Arranca e para sozinha o serviço. No macOS vai no `.dmg` em vez da app anterior. No Windows, o zip leva o `nasyncloud-desktop.exe` e o `nasyncloud.exe`.
 - Motor: regista as transferências (`/api/transfers`), juntando as do mesmo ficheiro.

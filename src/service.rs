@@ -323,7 +323,6 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     rt.block_on(async {
         let svc = Service::new(cfg_path.to_path_buf(), mode);
-        svc.refresh_password_known().await;
         let port = svc.config().map_or(DEFAULT_UI_PORT, |c| c.ui_port);
         let ui = match crate::ui::serve(svc.clone(), port).await {
             Ok(ui) => {
@@ -336,6 +335,9 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
                 None
             }
         };
+        // After the interface is up: reading the keyring can wait for the person
+        // to allow it (macOS asks again whenever the app's signature changes).
+        svc.refresh_password_known().await;
         if svc.config().is_some() {
             if let Err(e) = svc.start_mount().await {
                 if mode == Mode::Headless {

@@ -92,6 +92,19 @@ tools/demo.sh                                                # demo em http://12
 
 O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PNG de 1024 px com fundo transparente (o Quick Look/`qlmanage` mete fundo branco, por isso usa um script Swift com `NSImage` + `NSBitmapImageRep`), cria o iconset com `sips -z` (16–512, @1x e @2x) e corre `iconutil -c icns`.
 
+## Atualizações automáticas (tauri-plugin-updater)
+
+- A app lê `https://github.com/PedroGrilo/NASYNCLOUD/releases/latest/download/latest.json` (20 s depois de arrancar, depois a cada 6 h, e no menu «Procurar atualizações»). O `latest.json` é gerado pelo job `release` do workflow, a partir das assinaturas `.sig`.
+- **Chave de assinatura**: a pública está em `desktop/tauri.conf.json` (`plugins.updater.pubkey`). A privada e a password estão no Mac do Pedro, em `~/.nasyncloud-updater/` (`nasyncloud.key`, `password`). **Se se perder a privada, as apps instaladas deixam de aceitar atualizações**: guardar uma cópia no gestor de passwords. No GitHub ficam nos segredos `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, que é o próprio Pedro que define, porque o auto mode não deixa escrever segredos. Sem eles, as execuções manuais geram pacotes sem assinatura e as de tag falham logo.
+- O que o atualizador descarrega: no macOS, `NASYNCLOUD-macos-arm64.app.tar.gz` (o `.app` inteiro, que ele substitui); no Windows, o instalador NSIS (`tauri.windows.conf.json`, gerado pelo CLI do Tauri, com o `nasyncloud.exe` como `externalBin`).
+- Antes de instalar, a app para o serviço (`stop_service`), porque ele corre de dentro da app que vai ser substituída. Depois faz `app.restart()`.
+- O painel recebe o estado (`available`, `downloading`, `installing`, `error`) por `eval` em `window.__nasyncloudUpdate`. O «Atualizar agora» é a ação `/app/update`.
+- **Testar localmente** (foi feito assim, e funcionou):
+  1. Compilar com `TAURI_CONFIG='{"plugins":{"updater":{"endpoints":["http://127.0.0.1:18799/latest.json"],"dangerousInsecureTransportProtocol":true}}}' CARGO_TARGET_DIR=target/updtest cargo build --release -p nasyncloud-desktop`.
+  2. Criar um `.app.tar.gz` com `COPYFILE_DISABLE=1 tar --no-mac-metadata` e assiná-lo com `npx @tauri-apps/cli@2.12.4 signer sign -f ~/.nasyncloud-updater/nasyncloud.key -p …`.
+  3. Servir um `latest.json` com `python3 -m http.server 18799`.
+  4. Arrancar com `NASYNCLOUD_UPDATE_NOW=1`, que instala sem clicar.
+
 ## Armadilhas (ler antes de mexer)
 
 - **VFS**: um único `std::sync::Mutex<State>`, **nunca** mantido através de um `.await`; rede sempre fora do lock. Escritas em ficheiros de cache são feitas *dentro* do lock, para não se cruzarem com downloads.
@@ -109,6 +122,8 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **macOS, `st_blocks`**: o macFUSE ignora-o e calcula-o a partir do tamanho, por isso o `du` não serve no macOS (o e2e salta essa verificação).
 - **App (desktop/)**: não depende da crate `nasyncloud` de propósito (ligaria ao libfuse e não arrancaria sem o macFUSE para o dizer). Fala com o serviço por HTTP em 127.0.0.1 (token do `ui.json`). As páginas pedem coisas à app navegando para `/app/<ação>` (main, hide, quit, restart, web), que o `on_navigation` interceta: assim não é preciso IPC do Tauri em páginas servidas por outro processo. O painel é uma janela sem moldura, transparente e sempre por cima, que se esconde ao perder o foco; o `hidden_at` evita que o mesmo clique no ícone o volte a abrir.
 - **App, compilar para Windows a partir do Mac**: falha no `tauri-build` (precisa de `llvm-rc` para os recursos). Fica para o workflow (runner Windows).
+- **Arquivo de atualização no macOS**: criar sempre com `COPYFILE_DISABLE=1 tar --no-mac-metadata`. Sem isso, o tar mete entradas `._*` (AppleDouble) e o atualizador falha a extrair.
+- **Porta-chaves e assinatura ad-hoc**: cada build muda a assinatura, por isso, depois de atualizar, o macOS volta a pedir acesso à password. O serviço já abre a interface antes de ler o Porta-chaves e a app espera até 2 minutos por ele. Com Developer ID, o pedido deixa de aparecer.
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
 - **macOS, aviso «fuse: forking a threaded process is unsafe»**: vem do `fuse_mount` do libfuse, que lança o `mount_macfuse` a partir de um processo com threads. É inofensivo (o `malloc` do macOS tem handlers de `fork`), mas convém não pôr trabalho entre o `fork` e o `exec`.
 - **App macOS**: `LSUIElement` (sem Dock), por isso a única forma normal de sair é o botão «Sair» da interface (`/api/quit`). Como a assinatura é ad-hoc, o Porta-chaves pode voltar a pedir autorização para a password depois de cada atualização da app.

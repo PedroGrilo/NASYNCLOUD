@@ -108,7 +108,8 @@ fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console window
     }
     let mut proc = cmd.spawn().map_err(|e| StartError::Failed(format!("{}: {e}", service_binary().display())))?;
-    let deadline = Instant::now() + Duration::from_secs(20);
+    // Generous: the first start after an update may wait on a keychain prompt.
+    let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         if let Some(ui) = alive() {
             *child.lock().unwrap() = Some(proc);
@@ -138,6 +139,9 @@ struct Shell {
     /// When the panel last hid itself on losing focus: a click on the tray
     /// icon blurs it first, and that same click must not show it again.
     hidden_at: Mutex<Option<Instant>>,
+    /// A newer version found by the updater, and what the panel shows about it.
+    update: Mutex<Option<tauri_plugin_updater::Update>>,
+    update_state: Mutex<Option<UpdateState>>,
 }
 
 fn shell(app: &AppHandle) -> tauri::State<'_, Shell> {
@@ -238,6 +242,7 @@ fn show_panel(app: &AppHandle) {
     place_panel(&win, rect);
     let _ = win.show();
     let _ = win.set_focus();
+    push_update_state(app);
 }
 
 fn toggle_panel(app: &AppHandle) {
@@ -268,10 +273,117 @@ fn on_navigation(app: &AppHandle, url: &Url) -> bool {
         "hide" => hide_panel(&app),
         "quit" => quit(&app),
         "retry" | "restart" => restart(&app),
+        "update" => tauri::async_runtime::block_on(install_update(&app)),
         "web" => open_web(query.get("url").map_or("", String::as_str)),
         _ => {}
     });
     false
+}
+
+// ---------------------------------------------------------------- updates
+
+/// What the panel shows about an update (it reads `window.__nasyncloudUpdate`).
+#[derive(serde::Serialize, Clone)]
+struct UpdateState {
+    version: String,
+    /// "available", "downloading", "installing" or "error".
+    state: &'static str,
+    progress: Option<u8>,
+    error: Option<String>,
+}
+
+fn set_update_state(app: &AppHandle, state: Option<UpdateState>) {
+    *shell(app).update_state.lock().unwrap() = state;
+    push_update_state(app);
+}
+
+/// The panel is served by the service, not by us: tell it through a script.
+fn push_update_state(app: &AppHandle) {
+    let Some(p) = panel(app) else { return };
+    let json = serde_json::to_string(&*shell(app).update_state.lock().unwrap()).unwrap_or_else(|_| "null".into());
+    let _ = p.eval(format!("window.__nasyncloudUpdate = {json}; if (window.render) render();"));
+}
+
+fn notify(app: &AppHandle, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app.notification().builder().title("NASYNCLOUD").body(body).show() {
+        eprintln!("NASYNCLOUD: notification: {e}");
+    }
+}
+
+/// Asks the release server (latest.json) for a newer version. `manual`: the
+/// person asked, so also say when there is none.
+async fn check_for_update(app: &AppHandle, manual: bool) {
+    use tauri_plugin_updater::UpdaterExt;
+    let found = match app.updater() {
+        Ok(u) => u.check().await,
+        Err(e) => Err(e),
+    };
+    match found {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            let known = shell(app).update.lock().unwrap().as_ref().map(|u| u.version.clone());
+            *shell(app).update.lock().unwrap() = Some(update);
+            if manual || known.as_deref() != Some(version.as_str()) {
+                set_update_state(app, Some(UpdateState { version: version.clone(), state: "available", progress: None, error: None }));
+                if let Some(tray) = app.tray_by_id("tray") {
+                    let _ = tray.set_tooltip(Some(format!("NASYNCLOUD · versão {version} disponível")));
+                }
+                notify(app, &format!("A versão {version} está disponível. Abre o painel do NASYNCLOUD para atualizar."));
+                // For testing the whole flow without clicking.
+                if std::env::var_os("NASYNCLOUD_UPDATE_NOW").is_some() {
+                    install_update(app).await;
+                }
+            }
+        }
+        Ok(None) if manual => notify(app, &format!("Tens a versão mais recente ({}).", app.package_info().version)),
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("NASYNCLOUD: update check failed: {e}");
+            if manual {
+                notify(app, "Não foi possível procurar atualizações. Tenta mais tarde.");
+            }
+        }
+    }
+}
+
+/// Downloads the update, stops the service (it lives inside the app being
+/// replaced), installs it and starts the new version.
+async fn install_update(app: &AppHandle) {
+    let Some(update) = shell(app).update.lock().unwrap().clone() else { return };
+    let version = update.version.clone();
+    let st = |state: &'static str, progress: Option<u8>, error: Option<String>| Some(UpdateState { version: version.clone(), state, progress, error });
+    set_update_state(app, st("downloading", Some(0), None));
+    let (progress_app, progress_version) = (app.clone(), version.clone());
+    let (mut got, mut shown) = (0u64, 0u8);
+    let downloaded = update
+        .download(
+            move |chunk, total| {
+                got += chunk as u64;
+                if let Some(total) = total.filter(|t| *t > 0) {
+                    let pct = (got * 100 / total).min(100) as u8;
+                    if pct >= shown.saturating_add(5) {
+                        shown = pct;
+                        let state = UpdateState { version: progress_version.clone(), state: "downloading", progress: Some(pct), error: None };
+                        set_update_state(&progress_app, Some(state));
+                    }
+                }
+            },
+            || {},
+        )
+        .await;
+    let bytes = match downloaded {
+        Ok(b) => b,
+        Err(e) => return set_update_state(app, st("error", None, Some(e.to_string()))),
+    };
+    set_update_state(app, st("installing", None, None));
+    stop_service(app);
+    if let Err(e) = update.install(&bytes) {
+        eprintln!("NASYNCLOUD: update install failed: {e}");
+        restart(app);
+        return set_update_state(app, st("error", None, Some(e.to_string())));
+    }
+    app.restart();
 }
 
 // ---------------------------------------------------------------- full window, restart, quit
@@ -319,8 +431,20 @@ fn show_main(app: &AppHandle, view: &str) {
 
 /// Starts the service again if needed and reloads the panel.
 fn restart(app: &AppHandle) {
+    // Start the service first (if needed): this is what the panel will show.
+    let (url, init) = panel_target(app);
     if let Some(w) = panel(app) {
+        if let (WebviewUrl::External(url), None) = (url, init) {
+            let _ = w.navigate(url);
+            return show_panel(app);
+        }
+        // The local error page needs its startup script: build the panel again,
+        // once the old one is really gone (destroying is asynchronous).
         let _ = w.destroy();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while panel(app).is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
     show_panel(app);
 }
@@ -343,17 +467,30 @@ fn quit(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }
+    stop_service(app);
+    app.exit(0);
+}
+
+/// Asks the service to stop and waits for it (it finishes pending uploads and
+/// unmounts first), whether we started it or it was already running.
+fn stop_service(app: &AppHandle) {
     if let Some(ui) = shell(app).ui.lock().unwrap().clone().or_else(ui_file) {
         let _ = call(&ui, "POST", "/api/quit");
     }
     let child = shell(app).child.lock().unwrap().take();
-    if let Some(mut c) = child {
-        let deadline = Instant::now() + Duration::from_secs(90);
-        while Instant::now() < deadline && !matches!(c.try_wait(), Ok(Some(_))) {
-            std::thread::sleep(Duration::from_millis(150));
+    let deadline = Instant::now() + Duration::from_secs(90);
+    match child {
+        Some(mut c) => {
+            while Instant::now() < deadline && !matches!(c.try_wait(), Ok(Some(_))) {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+        }
+        None => {
+            while Instant::now() < deadline && alive().is_some() {
+                std::thread::sleep(Duration::from_millis(150));
+            }
         }
     }
-    app.exit(0);
 }
 
 // ---------------------------------------------------------------- tray, menus, main
@@ -398,6 +535,7 @@ fn on_menu(app: &AppHandle, id: &str) {
     std::thread::spawn(move || match id.as_str() {
         "open" => show_main(&app, ""),
         "panel" => show_panel(&app),
+        "check" => tauri::async_runtime::block_on(check_for_update(&app, true)),
         "quit" => quit(&app),
         _ => {}
     });
@@ -410,17 +548,22 @@ fn main() {
         ui: Mutex::new(None),
         last_rect: Mutex::new(None),
         hidden_at: Mutex::new(None),
+        update: Mutex::new(None),
+        update_state: Mutex::new(None),
     });
     #[cfg(target_os = "macos")]
     let builder = builder.menu(app_menu);
     let app = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let open = MenuItem::with_id(app, "open", "Abrir o NASYNCLOUD", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Sair do NASYNCLOUD", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let check = MenuItem::with_id(app, "check", "Procurar atualizações", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &check, &PredefinedMenuItem::separator(app)?, &quit])?;
             TrayIconBuilder::with_id("tray")
                 .icon(tray_icon())
                 .icon_as_template(cfg!(target_os = "macos"))
@@ -435,6 +578,15 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            // Look for a newer version a little after starting, then every 6 hours.
+            let updates = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(20));
+                loop {
+                    tauri::async_runtime::block_on(check_for_update(&updates, false));
+                    std::thread::sleep(Duration::from_secs(6 * 3600));
+                }
+            });
             // Start the service now and keep the panel ready. The first time
             // (nothing configured yet), go straight to the settings.
             let handle = app.handle().clone();

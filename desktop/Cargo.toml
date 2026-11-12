@@ -18,3 +18,5 @@ tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-ap
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 directories = "6"
+tauri-plugin-updater = "2"
+tauri-plugin-notification = "2"

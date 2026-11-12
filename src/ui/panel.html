@@ -120,6 +120,7 @@ const ICONS = {
   alert: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5"/><path d="M12 17.3h.01"/>',
   cloudOff: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96 6 6 0 0 1 1.9-3.2"/><path d="M11 3.9A6 6 0 0 1 17.9 8.6a4.6 4.6 0 0 1 2.6 7.4"/><path d="M17 18.5H8"/><path d="M3 3l18 18"/>',
   history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  download: '<path d="M12 4.5V15"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
 };
 const $ = s => document.querySelector(s);
 
@@ -250,11 +251,17 @@ function banner() {
   const b = (kind, ic, text, button, onclick) =>
     [kind, [icon(ic), h('div', null, text, button ? h('div', null, h('button', { type: 'button', onclick }, button)) : null)]];
   if (Date.now() < flashUntil) return b('err', 'alert', flashMsg);
+  // Set by the desktop app when it finds a newer version.
+  const up = window.__nasyncloudUpdate;
+  if (up && up.state === 'downloading') return b('info', 'download', `A descarregar a versão ${up.version}… ${up.progress || 0}%`);
+  if (up && up.state === 'installing') return b('info', 'download', `A instalar a versão ${up.version}. O NASYNCLOUD volta a abrir sozinho.`);
+  if (up && up.state === 'error') return b('err', 'alert', `Não foi possível atualizar para a versão ${up.version}: ${up.error}`, 'Tentar de novo', () => app('update'));
   if (locked) return b('err', 'alert', 'Este painel não tem acesso ao NASYNCLOUD. Abre-o a partir da app NASYNCLOUD.');
   if (!S) return b('err', 'alert', 'O NASYNCLOUD não está a responder.', 'Tentar de novo', () => { if (!app('restart')) poll(); });
   if (!S.configured) return b('info', 'gear', 'Indica o endereço da NAS para começar.', 'Configurar', () => openMain('definicoes'));
   if (S.error) return b('err', 'alert', S.error);
   if (S.phase === 'stopped') return b('info', 'pause', 'A pasta da NAS não está montada.', 'Retomar', () => act('/api/mount'));
+  if (up && up.state === 'available') return b('info', 'download', `Está disponível a versão ${up.version} do NASYNCLOUD.`, 'Atualizar agora', () => app('update'));
   const errs = S.info ? S.info.errors.length : 0;
   if (errs) return b('warn', 'alert', `${plural(errs, 'ficheiro tem', 'ficheiros têm')} problemas a sincronizar.`, 'Ver', () => openMain(''));
   return null;

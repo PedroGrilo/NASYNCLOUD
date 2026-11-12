@@ -25,5 +25,10 @@ No painel: o ícone de pasta abre a NAS no Finder; o da roda dentada tem
 «Abrir o NASYNCLOUD» (a janela completa), «Definições», «Pausar» e «Sair».
 Abrir a app outra vez (Finder, Spotlight) também mostra o painel.
 
+Atualizações: quando houver uma versão nova, o NASYNCLOUD avisa com uma
+notificação; no painel, «Atualizar agora» instala-a e volta a abrir a app.
+A primeira vez depois de atualizar, o macOS pode pedir para o NASYNCLOUD
+usar a password guardada no Porta-chaves: escolhe «Permitir sempre».
+
 Registo: ~/Library/Logs/nasyncloud.log
 Mais informação: README.md do projeto.

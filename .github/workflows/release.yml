@@ -1,10 +1,16 @@
 name: Release
 
-# Builds the macOS .dmg and the Windows zip (the tray app, nasyncloud-desktop.exe,
-# plus the nasyncloud.exe service it runs), after the tests.
-# - Pushing a tag v* (equal to the version in Cargo.toml, e.g. v0.2.1) also
-#   publishes them in a GitHub Release.
-# - "Run workflow" by hand only builds them; they stay as run artifacts.
+# Builds, after the tests:
+# - macOS: the .dmg (first install) and NASYNCLOUD-macos-arm64.app.tar.gz + .sig
+#   (what the in-app updater downloads);
+# - Windows: the installer NASYNCLOUD-<version>-windows-x64-setup.exe + .sig.
+# Pushing a tag v* (equal to the version in Cargo.toml, e.g. v1.0.0) publishes
+# them in a GitHub Release together with latest.json, which the installed apps
+# read to find updates. "Run workflow" by hand only builds them (run artifacts).
+#
+# Signing the updates needs the repository secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (see CLAUDE.md). Without them, manual runs
+# build unsigned packages and tag runs fail.
 
 on:
   push:
@@ -16,6 +22,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  TAURI_CLI: "@tauri-apps/cli@2.12.4"
 
 jobs:
   macos:
@@ -24,13 +31,16 @@ jobs:
     env:
       # macFUSE installs libfuse and its .pc files under /usr/local.
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
-      - name: Tag matches Cargo.toml
+      - name: Tag matches Cargo.toml, signing key present
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
           [ "${GITHUB_REF_NAME#v}" = "$version" ] || { echo "::error::the tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"; exit 1; }
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret is missing: updates could not be verified"; exit 1; }
       - name: Install macFUSE (only to link against its libfuse)
         run: brew install --cask macfuse
       - uses: dtolnay/rust-toolchain@stable
@@ -38,34 +48,59 @@ jobs:
       - run: cargo test --locked
       - name: Build NASYNCLOUD.app and the .dmg
         run: tools/package-macos.sh
+      - name: Updater archive and its signature
+        run: |
+          # No AppleDouble (._*) entries: the updater cannot unpack them.
+          COPYFILE_DISABLE=1 tar --no-mac-metadata -czf dist/NASYNCLOUD-macos-arm64.app.tar.gz -C dist NASYNCLOUD.app
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then npx --yes "$TAURI_CLI" signer sign dist/NASYNCLOUD-macos-arm64.app.tar.gz; fi
       - uses: actions/upload-artifact@v7
         with:
           name: macos
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.tar.gz
+            dist/*.sig
           if-no-files-found: error
 
   windows:
     name: Windows
     runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
-      - run: cargo build --release --locked -p nasyncloud -p nasyncloud-desktop
-      - name: Package
-        shell: pwsh
+      - name: Build the service the installer bundles
+        shell: bash
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches.Groups[1].Value
-          New-Item -ItemType Directory -Force dist/pkg | Out-Null
-          Copy-Item target/release/nasyncloud-desktop.exe dist/pkg/
-          Copy-Item target/release/nasyncloud.exe dist/pkg/
-          Copy-Item packaging/windows/LEIA-ME.txt dist/pkg/
-          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/NASYNCLOUD-$version-windows-x86_64.zip"
+          cargo build --release --locked -p nasyncloud
+          mkdir -p desktop/binaries
+          cp target/release/nasyncloud.exe desktop/binaries/nasyncloud-x86_64-pc-windows-msvc.exe
+      - name: Build the installer (NSIS)
+        shell: bash
+        working-directory: desktop
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            npx --yes "$TAURI_CLI" build --bundles nsis
+          else
+            npx --yes "$TAURI_CLI" build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          fi
+      - name: Package
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          mkdir -p dist
+          setup=$(ls target/release/bundle/nsis/*-setup.exe | head -1)
+          cp "$setup" "dist/NASYNCLOUD-$version-windows-x64-setup.exe"
+          if [ -f "$setup.sig" ]; then cp "$setup.sig" "dist/NASYNCLOUD-$version-windows-x64-setup.exe.sig"; fi
+          ls -la dist
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: dist/*.zip
+          path: dist/*
           if-no-files-found: error
 
   release:
@@ -80,6 +115,26 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: latest.json (read by the in-app updater)
+        run: |
+          python3 - <<'PY'
+          import json, os, datetime
+          tag = os.environ["GITHUB_REF_NAME"]; version = tag[1:]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}"
+          def entry(name):
+              return {"signature": open(f"dist/{name}.sig").read().strip(), "url": f"{base}/{name}"}
+          latest = {
+              "version": version,
+              "notes": f"NASYNCLOUD {version}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {
+                  "darwin-aarch64": entry("NASYNCLOUD-macos-arm64.app.tar.gz"),
+                  "windows-x86_64": entry(f"NASYNCLOUD-{version}-windows-x64-setup.exe"),
+              },
+          }
+          json.dump(latest, open("dist/latest.json", "w"), indent=2)
+          PY
+          head -5 dist/latest.json
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

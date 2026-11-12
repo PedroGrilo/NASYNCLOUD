@@ -38,7 +38,7 @@ O endereço é `http://IP_DA_NAS:5005/NomeDaPasta` (o nome é sensível a maiús
 Em [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
 
 - **macOS** (Apple Silicon): `NASYNCLOUD-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o NASYNCLOUD para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Fica na barra de menus (ver «A app» abaixo). O registo está em `~/Library/Logs/nasyncloud.log`.
-- **Windows**: `NASYNCLOUD-…-windows-x86_64.zip`, com o `nasyncloud-desktop.exe` (a app, é este que se abre) e o `nasyncloud.exe` (o serviço que ela arranca). Têm de ficar na mesma pasta. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
+- **Windows**: `NASYNCLOUD-…-windows-x64-setup.exe`, um instalador que não pede administrador. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
 - **Linux**: não há pacote; compila a partir do código (ver abaixo).
 
 ### Compilar
@@ -75,6 +75,10 @@ cargo build --release      # target\release\nasyncloud.exe
 - a roda dentada, com «Abrir o NASYNCLOUD» (a interface completa numa janela), «Definições», «Pausar sincronização» e «Sair».
 
 Na primeira vez abre logo as Definições. A app arranca sozinha o serviço `nasyncloud serve` que vem com ela, e o «Sair» espera pelos envios pendentes antes de fechar. Para compilar a app: `cargo build -p nasyncloud-desktop` (no macOS, `tools/package-macos.sh` gera o `.app` e o `.dmg`).
+
+### Atualizações automáticas
+
+A app verifica se há versão nova 20 segundos depois de arrancar e depois a cada 6 horas, e também quando escolhes «Procurar atualizações» no menu do ícone (clique direito). Quando há uma versão nova, mostra uma notificação e um aviso no painel. «Atualizar agora» descarrega a versão e confirma a assinatura. Depois para o serviço, à espera dos envios pendentes, instala e volta a abrir. As versões vêm das [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases) (`latest.json`) e vão assinadas: a app recusa tudo o que não tenha sido assinado pela chave do projeto.
 
 ### Linha de comandos e browser
 
