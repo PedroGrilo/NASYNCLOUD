@@ -369,6 +369,11 @@ pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) ->
         for opt in [format!("volname={volume_name}"), "noappledouble".to_string(), "noapplexattr".to_string()] {
             config.mount_options.push(MountOption::CUSTOM(opt));
         }
+        // Provisional switch to try macFUSE's FSKit backend (`fskit`) while the
+        // macOS mount is being brought up; see CLAUDE.md.
+        if let Ok(b) = std::env::var("NASDRIVE_MACFUSE_BACKEND") {
+            config.mount_options.push(MountOption::CUSTOM(format!("backend={b}")));
+        }
     }
     // SAFETY: plain getters without preconditions.
     let owner = unsafe { (libc::getuid(), libc::getgid()) };

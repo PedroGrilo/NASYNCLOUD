@@ -54,6 +54,8 @@ tests/
 tools/
   demo.sh           NAS falsa com conteúdo realista + mount + interface em :18731
   screenshot.py     capturas da interface (QtWebEngine), usado para docs/screenshots
+examples/
+  fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone, p.ex. no macOS
 ```
 
 `Mounted` tem a mesma API nas duas plataformas (`start`, `stop`, `wait_ended`, `info`, `browse`, `pin`, `free`, `refresh`); `service.rs` só fala com isso.
@@ -95,8 +97,18 @@ tools/demo.sh                                                # demo em http://12
 ## Repositório e máquina local
 
 - GitHub: `https://github.com/PedroGrilo/Files-on-Demand-UGOS`, branch `main`.
-- Cópia local: `~/ugreen-nas` no Mac do Pedro (Apple Silicon, arm64, macOS 27). Rust 1.99 e `pkg-config` pelo Homebrew, `gh` autenticado, **macFUSE já instalado**.
-- Isto quer dizer que o macOS pode finalmente ser testado a sério aqui (até agora só compilava): `cargo build && cargo test`, depois `nasdrive -v ui` numa pasta de teste. O `tests/e2e.sh` e o `tools/demo.sh` são só Linux (usam `fusermount`/`rclone` como no sandbox).
+- Cópia local: `~/ugreen-nas` no Mac do Pedro (Apple Silicon, arm64, macOS 27, SIP ativo). Rust 1.99 e `pkg-config` pelo Homebrew, `gh` autenticado, macFUSE 5.1.3 instalado. **Não há rclone**.
+- O `tests/e2e.sh` e o `tools/demo.sh` são só Linux (`fusermount3`, `setsid`, `stat -c`, `md5sum`, `sed -i` GNU).
+
+## macOS: estado dos testes (2026-11-12)
+
+- No Mac, `cargo build`, `cargo test` (28/28) e `cargo clippy --all-targets` (zero avisos) passam.
+- `examples/fake_nas.rs` é uma NAS falsa (dav-server sobre uma pasta, Basic auth `pedro`/`segredo`, regista cada pedido em stderr), para quem não tem rclone: `cargo run --example fake_nas -- <pasta> 127.0.0.1:5015`.
+- **O mount real ainda não funcionou.** O binário liga ao `/usr/local/lib/libfuse.2.dylib` do macFUSE.
+  - Motor kext (o que vem por omissão): `mount_macfuse: the file system is not available (2)`. O kext não está carregado e, no Apple Silicon, só carrega se se baixar a segurança no arranque. **Não seguir por aí.**
+  - Motor FSKit (`-o backend=fskit`): o módulo `io.macfuse.app.fsmodule.macfuse` não aparecia em `pluginkit -m -p com.apple.fskit.fsmodule`, e o mount ficou parado sem erro. O Pedro foi ativá-lo em Definições do Sistema → Geral → Itens de início e extensões → Extensões do sistema de ficheiros, o que pede reinício.
+  - Para experimentar o FSKit há uma variável **provisória**: `NASDRIVE_MACFUSE_BACKEND=fskit` acrescenta `backend=fskit` às opções de mount (`src/fuse.rs`). Se o FSKit funcionar, deve passar a ser o comportamento por omissão no macOS. Se só funcionar com libfuse3, é preciso ver se o `fuser` o suporta.
+- Retomar assim: confirmar que o módulo aparece no `pluginkit`, arrancar o `fake_nas`, depois `NASDRIVE_MACFUSE_BACKEND=fskit target/debug/nasdrive -v --config <cfg> mount`. Se montar, adaptar o `tests/e2e.sh` ao macOS (ou fazer uma variante dele) e corrê-lo com o `fake_nas`.
 
 ## Ambiente de desenvolvimento no sandbox do Claude (claude.ai)
 
