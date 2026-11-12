@@ -161,6 +161,14 @@ struct Local {
     base: Option<Version>,
 }
 
+/// A plain write handle on a file, for placeholder updates. The oplock
+/// handles from `Placeholder::options().open` turn invalid (0x80070006) as
+/// soon as another program (an antivirus scanning a fresh .zip, Explorer)
+/// opens the file, which broke the update right after an upload.
+fn file_handle(path: &Path) -> Result<Placeholder> {
+    Ok(Placeholder::from(fs::OpenOptions::new().read(true).write(true).open(path)?))
+}
+
 fn inspect(path: &Path, len: u64) -> Result<Local> {
     let info = Placeholder::open(path)?.info()?;
     Ok(match info {
@@ -374,6 +382,11 @@ impl Engine {
         let outcome = self.net(async {
             self.ensure_parents(&rel).await?;
             if let Some(current) = self.remote.stat(&rel).await? {
+                if !current.is_dir && current.version.size == meta.len() && current.version.mtime == mtime {
+                    // Already there: our own upload, from a try that failed
+                    // afterwards (only the local bookkeeping is missing).
+                    return Ok(Some(current.version));
+                }
                 let ours = !current.is_dir && local.base.as_ref().is_some_and(|b| b.same(&current.version));
                 if !ours {
                     return Ok(None); // changed on both sides
@@ -392,7 +405,7 @@ impl Engine {
             self.enqueue(path.to_path_buf(), SETTLE);
             return Ok(());
         }
-        let mut ph = Placeholder::options().write_access().open(path)?;
+        let mut ph = file_handle(path)?;
         let identity = blob(&version);
         if local.placeholder {
             ph.update(UpdateOptions::default().mark_in_sync().blob(&identity), NO_USN)?;

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 — 2026-11-12
+
+- **Windows: acabou a cascata de cópias de conflito.** Depois de enviar um ficheiro, marcá-lo como sincronizado podia falhar com «O identificador é inválido» (0x80070006) quando outro programa o abria logo a seguir (um antivírus a analisar um `.zip`, por exemplo). A tentativa seguinte tomava o próprio envio por uma alteração na NAS e criava mais uma cópia, `(conflict …) (conflict …)`, sem fim. Agora a marcação usa um handle normal do ficheiro, e um ficheiro que já está na NAS com o mesmo tamanho e a mesma data conta como nosso.
+- Os nomes das cópias de conflito já não acumulam marcadores: fica só um `(conflict …)`.
+
 ## 1.2.0 — 2026-11-12
 
 - **macOS sem macFUSE.** O mount passa a ser um servidor NFS local (só em 127.0.0.1, porta aleatória, crate `nfsserve`) montado com o cliente NFS que o macOS já traz (`mount_nfs`, sem administrador). Já não é preciso instalar o macFUSE, autorizar a extensão de sistema nem reiniciar. Linux continua com FUSE.

@@ -145,7 +145,14 @@ pub fn conflict_name(name: &str, unix_time: i64, mut taken: impl FnMut(&str) -> 
         Some(i) if i > 0 => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
+    // "a (conflict X) (conflict Y).zip" helps nobody: keep one marker.
     let mut stem = stem.to_string();
+    while let Some(i) = stem.rfind(" (conflict ") {
+        if !stem.ends_with(')') {
+            break;
+        }
+        stem.truncate(i);
+    }
     while stem.len() + ext.len() + 40 > 255 {
         stem.pop();
     }
@@ -191,6 +198,7 @@ mod tests {
         assert_eq!(conflict_name("a.tar.gz", 0, |_| false), "a.tar (conflict 1970-01-01 000000).gz");
         assert_eq!(conflict_name(".bashrc", 0, |_| false), ".bashrc (conflict 1970-01-01 000000)");
         assert_eq!(conflict_name("x", 0, |c| !c.ends_with(" 3)")), "x (conflict 1970-01-01 000000 3)");
+        assert_eq!(conflict_name("a (conflict 2026-11-12 185942) (conflict 2026-11-12 192728 2).zip", 0, |_| false), "a (conflict 1970-01-01 000000).zip");
         assert!(conflict_name(&"é".repeat(127), 0, |_| false).len() <= 255);
     }
 
