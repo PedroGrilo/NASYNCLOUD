@@ -1,6 +1,6 @@
 # Changelog
 
-## Por lançar
+## 1.2.0 — 2026-11-12
 
 - **macOS sem macFUSE.** O mount passa a ser um servidor NFS local (só em 127.0.0.1, porta aleatória, crate `nfsserve`) montado com o cliente NFS que o macOS já traz (`mount_nfs`, sem administrador). Já não é preciso instalar o macFUSE, autorizar a extensão de sistema nem reiniciar. Linux continua com FUSE.
 - macOS: os atributos estendidos funcionam (`ditto`, `cp -p`, etiquetas e quarentena do Finder). Os ficheiros `._*` e `.DS_Store` onde o macOS os guarda ficam em memória e nunca vão para a NAS; perdem-se quando o NASYNCLOUD para.
