@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>nasdrive</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%236366f1'/%3E%3Crect x='8' y='9' width='16' height='5' rx='1.5' fill='%23fff'/%3E%3Crect x='8' y='17' width='16' height='5' rx='1.5' fill='%23fff' fill-opacity='.6'/%3E%3Ccircle cx='21' cy='11.5' r='1.3' fill='%23fbbf24'/%3E%3Ccircle cx='21' cy='19.5' r='1.3' fill='%23fbbf24'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#080a16;
+  --line:rgba(255,255,255,.09);
+  --line-hi:rgba(255,255,255,.16);
+  --text:#eceefe;
+  --muted:#a1a7cc;
+  --faint:#6e7499;
+  --indigo:#818cf8;
+  --indigo-2:#6366f1;
+  --violet:#8b5cf6;
+  --amber:#fbbf24;
+  --amber-2:#f59e0b;
+  --green:#34d399;
+  --red:#f87171;
+  --r:20px;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%}
+body{
+  font:15px/1.5 Inter,"Segoe UI Variable","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--text);
+  background:
+    radial-gradient(1100px 620px at -5% -15%,rgba(99,102,241,.38),transparent 62%),
+    radial-gradient(900px 520px at 108% 0%,rgba(245,158,11,.16),transparent 60%),
+    radial-gradient(900px 700px at 60% 125%,rgba(139,92,246,.22),transparent 60%),
+    var(--bg);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(129,140,248,.35)}
+a{color:inherit}
+h1,h2,h3{margin:0;letter-spacing:-.02em}
+h1{font-size:28px;font-weight:700}
+h2{font-size:20px;font-weight:650}
+h3{font-size:17px;font-weight:600}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.glass{
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.035));
+  border:1px solid var(--line);border-radius:var(--r);
+  backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 18px 50px rgba(0,0,0,.35);
+}
+.ic{display:inline-flex;flex:none}
+.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+:focus-visible{outline:2px solid var(--indigo);outline-offset:2px}
+
+/* layout */
+.app{display:grid;grid-template-columns:250px minmax(0,1fr);gap:22px;padding:22px;max-width:1440px;margin:0 auto;min-height:100vh}
+.side{position:sticky;top:22px;height:calc(100vh - 44px);display:flex;flex-direction:column;gap:22px;padding:20px 14px}
+.brand{display:flex;align-items:center;gap:12px;padding:2px 8px}
+.brand svg{width:38px;height:38px;display:block;filter:drop-shadow(0 6px 16px rgba(99,102,241,.5))}
+.brand b{display:block;font-size:17px;letter-spacing:-.01em}
+.brand small{color:var(--faint);font-size:12.5px}
+nav.menu{display:flex;flex-direction:column;gap:4px}
+nav.menu a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;color:var(--muted);text-decoration:none;font-weight:550;transition:background .15s,color .15s}
+nav.menu a:hover{background:rgba(255,255,255,.05);color:var(--text)}
+nav.menu a.on{background:linear-gradient(90deg,rgba(99,102,241,.28),rgba(99,102,241,.08));color:#fff;box-shadow:inset 3px 0 0 var(--indigo)}
+nav.menu a .badge{margin-left:auto}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:0 8px}
+.side-foot small{color:var(--faint)}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid var(--line);background:rgba(255,255,255,.04);width:max-content}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.pill[data-kind=ok]::before{background:var(--green);box-shadow:0 0 0 4px rgba(52,211,153,.15)}
+.pill[data-kind=warn]::before{background:var(--amber);box-shadow:0 0 0 4px rgba(251,191,36,.15)}
+.pill[data-kind=busy]::before{background:var(--indigo);animation:pulse 1s ease-in-out infinite}
+.pill[data-kind=down]::before{background:var(--red)}
+.badge{min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:rgba(245,158,11,.18);color:var(--amber);font-size:12px;font-weight:700;display:inline-grid;place-items:center}
+main{min-width:0;padding:6px 4px 40px}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:4px 2px 20px;flex-wrap:wrap}
+.page-head p{margin:6px 0 0}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:12px;border:1px solid var(--line-hi);background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-weight:600;cursor:pointer;transition:transform .12s,background .15s,border-color .15s,box-shadow .15s;white-space:nowrap}
+.btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.24)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:linear-gradient(135deg,var(--indigo-2),var(--violet));border-color:transparent;color:#fff;box-shadow:0 8px 24px rgba(99,102,241,.35)}
+.btn.primary:hover{box-shadow:0 10px 30px rgba(99,102,241,.5)}
+.btn.amber{background:linear-gradient(135deg,var(--amber),var(--amber-2));color:#1d1403;border-color:transparent;box-shadow:0 8px 24px rgba(245,158,11,.25)}
+.btn.sm{padding:7px 12px;font-size:13.5px;border-radius:10px}
+.btn.sm .ic svg{width:16px;height:16px}
+.icon-btn{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.icon-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.icon-btn:disabled{opacity:.28;cursor:not-allowed;background:none}
+.icon-btn.on{color:var(--amber);background:rgba(245,158,11,.14);border-color:rgba(251,191,36,.3)}
+.icon-btn.big{width:42px;height:42px;border:1px solid var(--line);background:rgba(255,255,255,.05)}
+
+/* estado */
+.hero{display:flex;align-items:center;gap:22px;padding:26px 28px;margin-bottom:20px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-90px;bottom:-140px;width:340px;height:340px;border-radius:50%;background:radial-gradient(closest-side,var(--glow,rgba(99,102,241,.3)),transparent);pointer-events:none}
+.hero[data-kind=ok]{--glow:rgba(52,211,153,.2)}
+.hero[data-kind=warn]{--glow:rgba(251,191,36,.24)}
+.hero[data-kind=down]{--glow:rgba(248,113,113,.2)}
+.hero-icon{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;flex:none;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--muted)}
+.hero-icon .ic svg{width:30px;height:30px;stroke-width:1.7}
+.hero[data-kind=ok] .hero-icon{background:rgba(52,211,153,.14);color:var(--green);border-color:rgba(52,211,153,.3)}
+.hero[data-kind=warn] .hero-icon{background:rgba(251,191,36,.14);color:var(--amber);border-color:rgba(251,191,36,.3)}
+.hero[data-kind=busy] .hero-icon{background:rgba(99,102,241,.16);color:var(--indigo);border-color:rgba(129,140,248,.35)}
+.hero[data-kind=busy] .hero-icon .ic{animation:spin 1.1s linear infinite}
+.hero[data-kind=down] .hero-icon{background:rgba(248,113,113,.14);color:var(--red);border-color:rgba(248,113,113,.3)}
+.hero-text{min-width:0;flex:1}
+.hero-text h2{font-size:24px}
+.hero-text p{margin:6px 0 0;overflow-wrap:anywhere}
+.hero-actions{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:1}
+.banner{padding:14px 18px;border-radius:14px;margin-bottom:20px;border:1px solid;display:flex;gap:12px;align-items:flex-start;overflow-wrap:anywhere}
+.banner.err{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.3);color:#fecaca}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-bottom:20px}
+.card{padding:20px 22px}
+.card-head{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:600;font-size:14px;margin-bottom:12px}
+.card-head>.ic{color:var(--indigo)}
+.card-head .grow{margin-left:auto}
+.big{font-size:32px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
+.bar{height:8px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;margin:14px 0 8px}
+.bar span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--indigo-2),var(--amber));transition:width .5s}
+.card p{margin:8px 0 0}
+.errs{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px;color:#fecaca}
+.errs li{overflow-wrap:anywhere}
+.link{color:var(--indigo);text-decoration:none;font-weight:600}
+.link:hover{text-decoration:underline}
+.card.flush{padding:0}
+.card.flush .card-head{padding:18px 20px 6px;margin:0}
+
+/* activity log */
+.log{list-style:none;margin:0;padding:0 0 6px}
+.log li{display:grid;grid-template-columns:76px 58px minmax(0,1fr);gap:12px;padding:9px 20px;border-top:1px solid rgba(255,255,255,.05);font-size:13.5px;align-items:baseline}
+.log li:first-child{border-top:0}
+.log time{color:var(--faint);font-variant-numeric:tabular-nums;font-size:12.5px}
+.log .lv{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--indigo)}
+.log .lv-warn .lv{color:var(--amber)}
+.log .lv-error .lv{color:var(--red)}
+.log .lv-error .msg{color:#fecaca}
+.log .msg{font-family:var(--mono);font-size:12.5px;color:#d6daf6;overflow-wrap:anywhere}
+.log li.none{display:block;color:var(--faint);padding:14px 20px}
+.log-wrap{max-height:calc(100vh - 190px);overflow:auto;padding:6px 0}
+.seg{display:inline-flex;padding:4px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.seg button{border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:13.5px;padding:7px 14px;border-radius:9px;cursor:pointer}
+.seg button.on{background:rgba(99,102,241,.3);color:#fff}
+
+/* ficheiros */
+.crumbs{display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin-top:8px;font-size:15px}
+.crumbs a{color:var(--muted);text-decoration:none;padding:3px 8px;border-radius:8px}
+.crumbs a:hover{background:rgba(255,255,255,.06);color:var(--text)}
+.crumbs a:last-child{color:var(--text);font-weight:600}
+.crumbs .ic{color:var(--faint)}
+.crumbs .ic svg{width:14px;height:14px}
+.tools{display:flex;gap:10px;align-items:center}
+.search{display:flex;align-items:center;gap:8px;padding:0 12px;height:42px;border-radius:12px;border:1px solid var(--line);background:rgba(8,10,24,.5);color:var(--faint);min-width:260px}
+.search input{border:0;background:none;color:var(--text);font:inherit;outline:none;width:100%}
+.search:focus-within{border-color:rgba(129,140,248,.6);box-shadow:0 0 0 4px rgba(99,102,241,.15)}
+.folder-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 18px;margin-bottom:14px}
+.folder-actions{display:flex;gap:8px;flex-wrap:wrap}
+.files{overflow:hidden}
+.frow,.fhead{display:grid;grid-template-columns:minmax(0,1fr) 200px 96px 150px 116px;gap:14px;align-items:center;padding:10px 18px}
+.fhead{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);border-bottom:1px solid var(--line);padding-top:14px}
+.frow{border-top:1px solid rgba(255,255,255,.045);transition:background .12s}
+.frow:first-child{border-top:0}
+.frow:hover{background:rgba(255,255,255,.035)}
+.frow.has-err .name{color:#fecaca}
+.name{display:flex;align-items:center;gap:12px;min-width:0;color:var(--text);text-decoration:none;background:none;border:0;padding:0;font:inherit;font-weight:550;cursor:pointer;text-align:left}
+.name>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.name:hover>span:last-child{text-decoration:underline;text-decoration-color:rgba(255,255,255,.3)}
+.ft{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:rgba(255,255,255,.05);color:var(--muted)}
+.ft.dir{background:rgba(99,102,241,.16);color:var(--indigo)}
+.c-size,.c-date{color:var(--muted);font-size:13.5px;font-variant-numeric:tabular-nums}
+.c-size{text-align:right}
+.acts{display:flex;gap:2px;justify-content:flex-end}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);white-space:nowrap;width:max-content;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.chip .ic svg{width:14px;height:14px}
+.s-online{color:#c3c8ef}
+.s-online .ic{color:var(--indigo)}
+.s-partial{color:#c7d2fe;border-color:rgba(129,140,248,.35);background:rgba(99,102,241,.13)}
+.s-cached{color:#a7f3d0;border-color:rgba(52,211,153,.3);background:rgba(16,185,129,.1)}
+.s-modified,.s-uploading{color:#fde68a;border-color:rgba(251,191,36,.35);background:rgba(245,158,11,.12)}
+.s-uploading .ic{animation:bob 1s ease-in-out infinite}
+.empty{padding:48px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+.empty>.ic svg{width:42px;height:42px;stroke-width:1.4;color:var(--faint)}
+.empty p{margin:0}
+.loading{padding:30px;text-align:center;color:var(--faint)}
+
+/* definicoes */
+.settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}
+.span2{grid-column:1/-1}
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+.field>span{font-weight:600;font-size:14px}
+.field small{color:var(--faint);font-size:12.5px;line-height:1.45}
+.field input{width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--line);background:rgba(8,10,24,.55);color:var(--text);font:inherit;transition:border-color .15s,box-shadow .15s}
+.field input:focus{outline:none;border-color:rgba(129,140,248,.7);box-shadow:0 0 0 4px rgba(99,102,241,.16)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.check{display:flex;gap:12px;align-items:flex-start;cursor:pointer;margin:2px 0 14px;font-size:14px;color:var(--muted)}
+.check input{appearance:none;-webkit-appearance:none;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--line-hi);background:rgba(8,10,24,.55);flex:none;margin:1px 0 0;display:grid;place-items:center;cursor:pointer}
+.check input:checked{background:var(--indigo-2);border-color:var(--indigo-2)}
+.check input:checked::after{content:"";width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.test-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px}
+.test-row .ok{color:var(--green)}
+.test-row .bad{color:var(--red)}
+details.card>summary{cursor:pointer;list-style:none;margin:0}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"";margin-left:auto;width:8px;height:8px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s}
+details.card[open]>summary::after{transform:rotate(-135deg)}
+details.card[open]>summary{margin-bottom:16px}
+.adv{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0 16px}
+.adv .check{grid-column:1/-1}
+.save-row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.platform-windows .only-unix,body:not(.platform-windows) .only-win{display:none}
+
+/* toasts, overlay */
+#toasts{position:fixed;right:22px;bottom:22px;display:flex;flex-direction:column;gap:10px;z-index:20;max-width:min(420px,calc(100vw - 44px))}
+.toast{padding:13px 16px;border-radius:14px;font-weight:550;font-size:14px;animation:toast-in .25s ease-out;transition:opacity .4s,transform .4s;background:rgba(22,25,48,.88)}
+.toast.ok{border-color:rgba(52,211,153,.35)}
+.toast.err{border-color:rgba(248,113,113,.4);color:#fecaca}
+.toast.out{opacity:0;transform:translateY(8px)}
+.overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(5,6,14,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:30;padding:20px}
+.lock-card{padding:30px;max-width:460px;text-align:center}
+.lock-card p{margin:12px 0 0}
+.lock-card pre{font-family:var(--mono);background:rgba(8,10,24,.7);border:1px solid var(--line);padding:12px;border-radius:12px;margin:16px 0 0}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.35}}
+@keyframes bob{50%{transform:translateY(-2px)}}
+@keyframes toast-in{from{opacity:0;transform:translateY(10px)}}
+
+@media (max-width:1100px){
+  .frow,.fhead{grid-template-columns:minmax(0,1fr) 180px 90px 116px}
+  .c-date{display:none}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr);padding:12px;gap:14px}
+  .side{min-width:0;position:static;height:auto;flex-direction:row;align-items:center;flex-wrap:wrap;gap:12px;padding:12px}
+  nav.menu{min-width:0;flex-direction:row;overflow-x:auto;flex:1 1 100%;order:3}
+  nav.menu a{padding:9px 12px;white-space:nowrap}
+  nav.menu a.on{box-shadow:inset 0 -2px 0 var(--indigo)}
+  .side-foot{margin:0 0 0 auto;flex-direction:row;align-items:center;padding:0}
+  .side-foot small{display:none}
+  .settings{grid-template-columns:1fr}
+  .hero{flex-wrap:wrap;padding:20px}
+  .hero-actions{width:100%}
+  .tools{width:100%}
+  .search{min-width:0;flex:1}
+}
+@media (max-width:620px){
+  h1{font-size:24px}
+  .fhead{display:none}
+  .frow{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
+  .c-size{display:none}
+  .frow .chip{grid-column:1;grid-row:2;margin-left:48px}
+  .frow .acts{grid-column:2;grid-row:1 / span 2}
+  .two{grid-template-columns:1fr}
+  .log li{grid-template-columns:62px minmax(0,1fr)}
+  .log .lv{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side glass">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#6d28d9"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="url(#lg)"/><rect x="8" y="9" width="16" height="5" rx="1.6" fill="#fff" fill-opacity=".92"/><rect x="8" y="17" width="16" height="5" rx="1.6" fill="#fff" fill-opacity=".55"/><circle cx="21" cy="11.5" r="1.3" fill="#fbbf24"/><circle cx="21" cy="19.5" r="1.3" fill="#fbbf24"/></svg>
+      <div><b>nasdrive</b><small>ficheiros a pedido</small></div>
+    </div>
+    <nav class="menu" aria-label="Secções">
+      <a href="#/" data-view="estado" data-icon="home">Estado<span class="badge" id="nav-badge" title="Por enviar" hidden></span></a>
+      <a href="#/ficheiros" data-view="ficheiros" data-icon="files">Ficheiros</a>
+      <a href="#/atividade" data-view="atividade" data-icon="activity">Atividade</a>
+      <a href="#/definicoes" data-view="definicoes" data-icon="gear">Definições</a>
+    </nav>
+    <div class="side-foot"><span class="pill" id="conn-pill">…</span><small id="version"></small></div>
+  </aside>
+
+  <main>
+    <section class="view" id="v-estado" hidden>
+      <header class="page-head"><div><h1>Estado</h1><p class="muted">A tua NAS como uma pasta: só é descarregado o que abres.</p></div></header>
+      <div class="hero glass" id="hero">
+        <div class="hero-icon" id="hero-icon"></div>
+        <div class="hero-text"><h2 id="hero-title">A carregar…</h2><p class="muted" id="hero-detail"></p></div>
+        <div class="hero-actions">
+          <button class="btn" id="btn-open-root" type="button" data-icon="ext">Abrir pasta</button>
+          <button class="btn primary" id="btn-toggle" type="button">…</button>
+        </div>
+      </div>
+      <div class="banner err" id="st-error" data-icon="alert" hidden><span id="st-error-text"></span></div>
+      <div class="cards">
+        <div class="card glass"><div class="card-head" data-icon="drive">Espaço neste computador</div><div class="big" id="cache-big">—</div><div class="bar"><span id="cache-bar"></span></div><p class="muted small" id="cache-note"></p></div>
+        <div class="card glass"><div class="card-head" data-icon="upload">Por enviar para a NAS</div><div class="big" id="pend-big">—</div><p class="muted small" id="pend-note"></p></div>
+        <div class="card glass"><div class="card-head" data-icon="alert">Problemas</div><div class="big" id="err-big">—</div><ul class="errs" id="err-list"></ul></div>
+      </div>
+      <div class="card glass flush"><div class="card-head" data-icon="activity">Atividade recente<a class="link grow" href="#/atividade">Ver tudo</a></div><ul class="log" id="recent-log"></ul></div>
+    </section>
+
+    <section class="view" id="v-ficheiros" hidden>
+      <header class="page-head">
+        <div><h1>Ficheiros</h1><nav class="crumbs" id="crumbs" aria-label="Caminho"></nav></div>
+        <div class="tools">
+          <label class="search" data-icon="search"><input id="filter" type="search" placeholder="Filtrar nesta pasta" aria-label="Filtrar nesta pasta"></label>
+          <button class="icon-btn big" id="btn-refresh" type="button" title="Reler da NAS" aria-label="Reler da NAS" data-icon="refresh"></button>
+        </div>
+      </header>
+      <div class="folder-bar glass" id="folder-bar" hidden>
+        <div class="muted small" id="folder-summary"></div>
+        <div class="folder-actions">
+          <button class="btn sm" id="btn-pin-folder" type="button"></button>
+          <button class="btn sm" id="btn-free-folder" type="button" data-icon="free">Libertar espaço</button>
+          <button class="btn sm" id="btn-open-folder" type="button" data-icon="ext">Abrir</button>
+        </div>
+      </div>
+      <div class="files glass" id="files"><div class="fhead"><span>Nome</span><span>Estado</span><span class="c-size">Tamanho</span><span class="c-date">Modificado</span><span></span></div><div id="file-rows"></div></div>
+      <div class="empty glass" id="files-empty" hidden></div>
+    </section>
+
+    <section class="view" id="v-atividade" hidden>
+      <header class="page-head">
+        <div><h1>Atividade</h1><p class="muted">O que o nasdrive fez desde que arrancou.</p></div>
+        <div class="seg" id="log-filter"><button type="button" data-f="all" class="on">Tudo</button><button type="button" data-f="warn">Avisos e erros</button></div>
+      </header>
+      <div class="glass log-wrap" id="log-wrap"><ul class="log" id="log-list"></ul></div>
+    </section>
+
+    <section class="view" id="v-definicoes" hidden>
+      <header class="page-head"><div><h1 id="cfg-title">Definições</h1><p class="muted" id="cfg-sub"></p></div></header>
+      <form id="cfg-form" class="settings" autocomplete="off">
+        <div class="card glass">
+          <div class="card-head" data-icon="drive">Ligação à NAS</div>
+          <label class="field"><span>Endereço WebDAV</span><input name="url" type="text" required placeholder="http://192.168.1.50:5005/Documentos" spellcheck="false"><small>Na UGOS: Painel de Controlo → Serviço de Ficheiros → WebDAV. Usa a porta 5005 (HTTP) ou 5006 (HTTPS) e o nome da pasta partilhada, com as maiúsculas certas.</small></label>
+          <div class="two">
+            <label class="field"><span>Utilizador</span><input name="username" type="text" required autocomplete="username" spellcheck="false"></label>
+            <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password"><small id="pw-hint"></small></label>
+          </div>
+          <label class="check"><input type="checkbox" name="accept_invalid_certs"><span>Confiar no certificado HTTPS da NAS mesmo sem o poder verificar (o certificado de origem da UGOS é autoassinado)</span></label>
+          <div class="test-row"><button type="button" class="btn" id="btn-test" data-icon="refresh">Testar ligação</button><span id="test-result" class="small"></span></div>
+        </div>
+        <div class="card glass">
+          <div class="card-head" data-icon="files">Neste computador</div>
+          <label class="field"><span>Pasta onde a NAS aparece</span><input name="mountpoint" type="text" required spellcheck="false"><small id="mp-hint"></small></label>
+          <label class="field only-unix"><span>Espaço máximo para ficheiros descarregados</span><input name="cache_max_size" type="text" placeholder="20G" spellcheck="false"><small>Por exemplo 500M, 20G ou 1T. O que mantiveres offline ou ainda estiver por enviar nunca é apagado.</small></label>
+          <p class="muted small only-win">No Windows, o espaço é gerido pelo próprio sistema. Usa «Libertar espaço» quando quiseres.</p>
+        </div>
+        <details class="card glass span2">
+          <summary class="card-head" data-icon="gear">Avançado</summary>
+          <div class="adv">
+            <label class="field"><span>Reler pastas da NAS após (s)</span><input name="dir_ttl_secs" type="number" min="0"></label>
+            <label class="field"><span>Verificar o que está offline a cada (s)</span><input name="poll_interval_secs" type="number" min="10"></label>
+            <label class="field"><span>Esperar antes de enviar (s)</span><input name="upload_delay_secs" type="number" min="0"></label>
+            <label class="field"><span>Envios em simultâneo</span><input name="parallel_uploads" type="number" min="1" max="16"></label>
+            <label class="field"><span>Leitura antecipada (MB)</span><input name="readahead_mb" type="number" min="1" max="1024"></label>
+            <label class="field"><span>Porta desta interface</span><input name="ui_port" type="number" min="1024" max="65535"><small>Aplica-se no próximo arranque.</small></label>
+            <label class="check"><input type="checkbox" name="atomic_upload"><span>Enviar para um nome temporário e só no fim substituir o original (um envio interrompido nunca deixa um ficheiro cortado na NAS)</span></label>
+          </div>
+        </details>
+        <div class="save-row span2"><small class="muted" id="cfg-path"></small><button type="submit" class="btn primary" id="btn-save">Guardar e ligar</button></div>
+      </form>
+    </section>
+  </main>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div class="overlay" id="locked" hidden>
+  <div class="glass lock-card"><h2>Abre pelo nasdrive</h2><p class="muted">Por segurança, esta página só funciona quando é aberta pelo próprio programa. Corre:</p><pre>nasdrive ui</pre></div>
+</div>
+
+<script>
+'use strict';
+
+const ICONS = {
+  home: '<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  files: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  activity: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 8.6 4.6 4.6 0 0 1 17 18.5z"/>',
+  cloudOff: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96 6 6 0 0 1 1.9-3.2"/><path d="M11 3.9A6 6 0 0 1 17.9 8.6a4.6 4.6 0 0 1 2.6 7.4"/><path d="M17 18.5H8"/><path d="M3 3l18 18"/>',
+  check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.4 12.2 2.4 2.4 4.8-5"/>',
+  half: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
+  upload: '<path d="M12 15V4.5"/><path d="m7.5 9 4.5-4.5L16.5 9"/><path d="M5 19.5h14"/>',
+  pin: '<path d="M12 16.5V21"/><path d="M8.5 3.5h7l-1 5.5 3 3V14h-11v-2l3-3z"/>',
+  free: '<rect x="3.5" y="14" width="17" height="6" rx="2"/><path d="M7.5 17h.01"/><path d="M12 11V3.5"/><path d="m8.5 7 3.5-3.5L15.5 7"/>',
+  ext: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
+  refresh: '<path d="M20 12a8 8 0 0 1-14.3 4.9"/><path d="M4 12A8 8 0 0 1 18.3 7.1"/><path d="M18.5 3v4.3h-4.3"/><path d="M5.5 21v-4.3h4.3"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
+  alert: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5"/><path d="M12 17.3h.01"/>',
+  chev: '<path d="m9.5 6 6 6-6 6"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  drive: '<rect x="3.5" y="13.5" width="17" height="6.5" rx="2"/><path d="M5.5 13.5 8 5h8l2.5 8.5"/><path d="M7.5 16.75h.01"/>',
+  power: '<path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
+};
+
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+
+function icon(name, cls) {
+  const span = document.createElement('span');
+  span.className = 'ic' + (cls ? ' ' + cls : '');
+  span.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+  return span;
+}
+
+// Builds elements; text always goes in as text nodes (file names come from the NAS).
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : String(v));
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+const nf1 = new Intl.NumberFormat('pt-PT', { maximumFractionDigits: 1 });
+function size(b) {
+  if (b == null) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = b, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (i ? nf1.format(v) : v) + ' ' + units[i];
+}
+const dateFmt = new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' });
+const timeFmt = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const date = s => (s > 0 ? dateFmt.format(new Date(s * 1000)) : '—');
+const collator = new Intl.Collator('pt-PT', { numeric: true, sensitivity: 'base' });
+const fold = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// ---------------------------------------------------------------- API
+
+const TOKEN_KEY = 'nasdrive.token';
+let token = '';
+try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage disabled */ }
+{
+  const m = location.hash.match(/t=([0-9a-f]{32,})/i);
+  if (m) {
+    token = m[1];
+    try { localStorage.setItem(TOKEN_KEY, token); } catch (_) { /* keep it for this tab only */ }
+    history.replaceState(null, '', location.pathname + '#/');
+  }
+}
+
+class Unauthorized extends Error {}
+
+async function api(path, body) {
+  const opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'x-nasdrive-token': token } };
+  if (body !== undefined) {
+    opts.headers['content-type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (res.status === 401) { $('#locked').hidden = false; throw new Unauthorized('unauthorized'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+  return data;
+}
+
+function report(e) {
+  if (!(e instanceof Unauthorized)) toast(e.message, 'err');
+}
+
+function toast(msg, kind) {
+  const t = h('div', { class: 'toast glass ' + (kind || '') }, msg);
+  $('#toasts').append(t);
+  setTimeout(() => t.classList.add('out'), 4200);
+  setTimeout(() => t.remove(), 4700);
+}
+
+// ---------------------------------------------------------------- state
+
+let S = null;
+let prevPhase = null;
+let view = 'estado';
+let cwd = '';
+let listing = null;
+let filesBusy = false;
+let logLines = [];
+let lastSeq = 0;
+let logFilter = 'all';
+let formDirty = false;
+
+async function refreshState() {
+  try {
+    S = await api('/api/state');
+  } catch (e) {
+    if (!(e instanceof Unauthorized)) { S = null; renderDown(); }
+    return;
+  }
+  document.body.classList.toggle('platform-windows', S.platform === 'windows');
+  renderState();
+  if (S.phase !== prevPhase) {
+    const first = prevPhase === null;
+    prevPhase = S.phase;
+    if (!first && view === 'ficheiros') loadFiles(true);
+  }
+  if (view === 'definicoes') fillForm(false);
+}
+
+function setPill(kind, text) {
+  const p = $('#conn-pill');
+  p.dataset.kind = kind;
+  p.textContent = text;
+}
+
+function renderDown() {
+  $('#hero').dataset.kind = 'down';
+  $('#hero-icon').replaceChildren(icon('power'));
+  $('#hero-title').textContent = 'O nasdrive não está a correr';
+  $('#hero-detail').textContent = 'Volta a abri-lo com «nasdrive ui».';
+  $('#btn-toggle').disabled = true;
+  $('#btn-open-root').disabled = true;
+  setPill('down', 'Desligado');
+}
+
+function renderState() {
+  $('#version').textContent = 'nasdrive ' + S.version;
+  const info = S.info;
+  const phase = S.phase;
+  let kind = 'idle', ic = 'stop', title = 'Parado', detail = 'A pasta da NAS não está montada.', pill = 'Parado';
+  if (!S.configured) {
+    ic = 'gear'; title = 'Falta ligar à NAS'; detail = 'Indica o endereço da NAS nas definições para começar.'; pill = 'Por configurar';
+  } else if (phase === 'starting') {
+    kind = 'busy'; ic = 'refresh'; title = 'A ligar…'; detail = S.config.url; pill = 'A ligar';
+  } else if (phase === 'stopping') {
+    kind = 'busy'; ic = 'refresh'; title = 'A parar…'; pill = 'A parar';
+    detail = info && info.pending_uploads ? `A terminar ${plural(info.pending_uploads, 'envio pendente', 'envios pendentes')}.` : 'A desmontar a pasta.';
+  } else if (phase === 'running' && info) {
+    if (info.online) {
+      kind = 'ok'; ic = 'check'; title = 'Ligado à NAS'; pill = 'Ligado';
+      detail = `${S.config.url}  →  ${S.mountpoint}`;
+    } else {
+      kind = 'warn'; ic = 'cloudOff'; title = 'NAS inacessível'; pill = 'Offline';
+      detail = 'A trabalhar com o que está neste computador. As alterações seguem quando a NAS voltar.';
+    }
+  }
+  $('#hero').dataset.kind = kind;
+  $('#hero-icon').replaceChildren(icon(ic));
+  $('#hero-title').textContent = title;
+  $('#hero-detail').textContent = detail;
+  setPill(kind, pill);
+
+  const running = phase === 'running';
+  const toggle = $('#btn-toggle');
+  toggle.disabled = phase === 'starting' || phase === 'stopping';
+  if (!S.configured) { toggle.replaceChildren(icon('gear'), 'Configurar'); toggle.className = 'btn primary'; }
+  else if (running) { toggle.replaceChildren(icon('stop'), 'Parar'); toggle.className = 'btn'; }
+  else { toggle.replaceChildren(icon('play'), 'Iniciar'); toggle.className = 'btn primary'; }
+  $('#btn-open-root').disabled = !running;
+
+  $('#st-error').hidden = !S.error;
+  $('#st-error-text').textContent = S.error || '';
+
+  if (info) {
+    if (info.cache_max != null) {
+      $('#cache-big').textContent = size(info.cache_bytes);
+      $('#cache-bar').style.width = Math.min(100, (100 * info.cache_bytes) / Math.max(1, info.cache_max)).toFixed(1) + '%';
+      $('#cache-note').textContent = `de ${size(info.cache_max)} reservados para ficheiros descarregados`;
+    } else {
+      $('#cache-big').textContent = 'Windows';
+      $('#cache-bar').style.width = '0';
+      $('#cache-note').textContent = 'O espaço é gerido pelo Windows. Usa «Libertar espaço» quando quiseres.';
+    }
+    $('#pend-big').textContent = info.pending_uploads;
+    $('#pend-note').textContent = info.uploading
+      ? `${info.uploading} a enviar agora`
+      : info.pending_uploads ? (info.online ? 'Na fila para enviar' : 'Seguem quando a NAS voltar') : 'Está tudo na NAS';
+    $('#err-big').textContent = info.errors.length;
+    $('#err-list').replaceChildren(...info.errors.slice(0, 4).map(e => h('li', null, e)));
+  } else {
+    for (const id of ['#cache-big', '#pend-big', '#err-big']) $(id).textContent = '—';
+    $('#cache-bar').style.width = '0';
+    $('#cache-note').textContent = '';
+    $('#pend-note').textContent = '';
+    $('#err-list').replaceChildren();
+  }
+  const pending = info ? info.pending_uploads : 0;
+  const badge = $('#nav-badge');
+  badge.hidden = !pending;
+  badge.textContent = pending;
+}
+
+$('#btn-toggle').addEventListener('click', async () => {
+  if (!S) return;
+  if (!S.configured) { location.hash = '#/definicoes'; return; }
+  try { await api(S.phase === 'running' ? '/api/unmount' : '/api/mount', {}); } catch (e) { report(e); }
+  burst();
+});
+$('#btn-open-root').addEventListener('click', () => openPath(''));
+
+// Polls quickly for a few seconds after an action, so the change shows at once.
+function burst() {
+  let n = 0;
+  const t = setInterval(() => { refreshState(); if (++n >= 16) clearInterval(t); }, 500);
+}
+
+// ---------------------------------------------------------------- ficheiros
+
+const STATES = {
+  online: ['Só na NAS', 'cloud', 's-online'],
+  partial: ['Parcialmente aqui', 'half', 's-partial'],
+  cached: ['Neste computador', 'check', 's-cached'],
+  modified: ['Por enviar', 'upload', 's-modified'],
+  uploading: ['A enviar…', 'upload', 's-uploading'],
+  local: ['Só neste computador', 'file', ''],
+};
+
+const folderHref = rel => '#/ficheiros' + (rel ? '/' + rel.split('/').map(encodeURIComponent).join('/') : '');
+const join = (dir, name) => (dir ? dir + '/' + name : name);
+
+function renderCrumbs() {
+  const parts = cwd ? cwd.split('/') : [];
+  const kids = [h('a', { href: folderHref('') }, 'NAS')];
+  parts.forEach((p, i) => kids.push(icon('chev'), h('a', { href: folderHref(parts.slice(0, i + 1).join('/')) }, p)));
+  $('#crumbs').replaceChildren(...kids);
+}
+
+function showFilesMessage(ic, text, extra) {
+  $('#files').hidden = true;
+  $('#folder-bar').hidden = true;
+  const box = $('#files-empty');
+  box.hidden = false;
+  box.replaceChildren(icon(ic), h('h3', null, text), extra || '');
+}
+
+async function loadFiles(reset) {
+  renderCrumbs();
+  if (!S || S.phase !== 'running') {
+    const start = S && S.configured ? h('button', { class: 'btn primary', type: 'button', onclick: () => $('#btn-toggle').click() }, icon('play'), 'Iniciar') : null;
+    showFilesMessage('drive', S && S.phase === 'starting' ? 'A ligar à NAS…' : 'A NAS não está montada.', start);
+    return;
+  }
+  if (filesBusy) return;
+  filesBusy = true;
+  if (reset) {
+    $('#filter').value = '';
+    listing = null;
+    $('#files').hidden = false;
+    $('#files-empty').hidden = true;
+    $('#file-rows').replaceChildren(h('div', { class: 'loading' }, 'A carregar…'));
+  }
+  const want = cwd;
+  try {
+    const l = await api('/api/browse?path=' + encodeURIComponent(want));
+    if (want === cwd) { listing = l; renderFiles(); }
+  } catch (e) {
+    if (!(e instanceof Unauthorized) && want === cwd) {
+      listing = null;
+      showFilesMessage('alert', 'Não foi possível abrir esta pasta.', h('p', { class: 'muted small' }, e.message));
+    }
+  } finally {
+    filesBusy = false;
+  }
+}
+
+function chip(e) {
+  if (e.dir) {
+    if (S.platform === 'windows' || !e.files) {
+      return e.pending ? h('span', { class: 'chip s-modified' }, icon('upload'), `${e.pending} por enviar`) : h('span', { class: 'chip' }, icon('files'), 'Pasta');
+    }
+    if (e.pending) return h('span', { class: 'chip s-modified' }, icon('upload'), `${e.pending} por enviar`);
+    const all = e.files_cached === e.files, some = e.files_cached > 0;
+    return h('span', { class: 'chip ' + (all ? 's-cached' : some ? 's-partial' : 's-online'), title: `${e.files_cached} de ${e.files} ficheiros conhecidos estão neste computador` },
+      icon(all ? 'check' : some ? 'half' : 'cloud'), `${e.files_cached}/${e.files} aqui`);
+  }
+  const [label, ic, cls] = STATES[e.state] || [e.state, 'file', ''];
+  return h('span', { class: 'chip ' + cls }, icon(ic), label);
+}
+
+function row(e) {
+  const rel = join(cwd, e.name);
+  const pinned = e.pinned !== 'no';
+  const inherited = e.pinned === 'inherited';
+  const name = e.dir
+    ? h('a', { class: 'name', href: folderHref(rel) }, h('span', { class: 'ft dir' }, icon('files')), h('span', null, e.name))
+    : h('button', { class: 'name', type: 'button', title: 'Abrir', onclick: () => openPath(rel) }, h('span', { class: 'ft' }, icon('file')), h('span', null, e.name));
+  const pinTitle = inherited ? 'Mantido offline pela pasta acima' : pinned ? 'Deixar de manter offline' : 'Manter sempre neste computador';
+  return h('div', { class: 'frow' + (e.error ? ' has-err' : ''), title: e.error },
+    name,
+    chip(e),
+    h('span', { class: 'c-size' }, e.dir ? (e.size ? size(e.size) : '') : size(e.size)),
+    h('span', { class: 'c-date' }, date(e.mtime)),
+    h('div', { class: 'acts' },
+      h('button', { class: 'icon-btn' + (pinned ? ' on' : ''), type: 'button', title: pinTitle, 'aria-label': pinTitle, disabled: inherited, onclick: () => pin(rel, !pinned) }, icon('pin')),
+      h('button', { class: 'icon-btn', type: 'button', title: 'Libertar espaço', 'aria-label': 'Libertar espaço', disabled: inherited || (!e.dir && !e.cached), onclick: () => free(rel) }, icon('free')),
+      h('button', { class: 'icon-btn', type: 'button', title: 'Abrir', 'aria-label': 'Abrir', onclick: () => openPath(rel) }, icon('ext'))));
+}
+
+function renderFiles() {
+  if (!listing) return;
+  const t = listing.this;
+  const parts = [plural(listing.entries.length, 'item', 'itens')];
+  if (S.platform !== 'windows' && t.files) parts.push(`${t.files_cached} de ${t.files} ficheiros neste computador`, `${size(t.cached)} de ${size(t.size)}`);
+  if (t.pending) parts.push(`${t.pending} por enviar`);
+  $('#folder-summary').textContent = parts.join('  ·  ');
+  const pinned = t.pinned !== 'no';
+  const pinBtn = $('#btn-pin-folder');
+  pinBtn.replaceChildren(icon('pin'), t.pinned === 'inherited' ? 'Offline pela pasta acima' : pinned ? 'Mantida offline' : 'Manter offline');
+  pinBtn.className = 'btn sm' + (pinned ? ' amber' : '');
+  pinBtn.title = pinned ? 'Clica para deixar de manter esta pasta offline' : 'Descarrega tudo o que está nesta pasta e mantém-no atualizado';
+  pinBtn.disabled = t.pinned === 'inherited';
+  pinBtn.onclick = () => pin(cwd, !pinned);
+  $('#btn-free-folder').disabled = t.pinned === 'inherited';
+  $('#btn-free-folder').onclick = () => free(cwd);
+  $('#btn-open-folder').onclick = () => openPath(cwd);
+
+  if (!listing.entries.length) {
+    showFilesMessage('files', 'Esta pasta está vazia.');
+    $('#folder-bar').hidden = false;
+    return;
+  }
+  $('#folder-bar').hidden = false;
+  $('#files').hidden = false;
+  $('#files-empty').hidden = true;
+  const q = fold($('#filter').value.trim());
+  const items = listing.entries
+    .filter(e => !q || fold(e.name).includes(q))
+    .sort((a, b) => (b.dir - a.dir) || collator.compare(a.name, b.name));
+  $('#file-rows').replaceChildren(...(items.length ? items.map(row) : [h('div', { class: 'loading' }, 'Nada corresponde ao filtro.')]));
+}
+
+async function pin(rel, on) {
+  try {
+    await api('/api/pin', { path: rel, on });
+    toast(on ? 'A descarregar. Vai ficar sempre neste computador.' : 'Deixou de ser mantido offline.', 'ok');
+  } catch (e) { report(e); }
+  loadFiles(false);
+}
+
+async function free(rel) {
+  try {
+    const r = await api('/api/free', { path: rel });
+    toast(r.freed ? `Libertados ${size(r.freed)} neste computador.` : 'Não havia nada para libertar.', 'ok');
+  } catch (e) { report(e); }
+  loadFiles(false);
+}
+
+async function openPath(rel) {
+  try { await api('/api/open', { path: rel }); } catch (e) { report(e); }
+}
+
+$('#filter').addEventListener('input', renderFiles);
+$('#btn-refresh').addEventListener('click', async () => {
+  const b = $('#btn-refresh');
+  b.disabled = true;
+  try { await api('/api/refresh', { path: cwd }); } catch (e) { report(e); }
+  b.disabled = false;
+  loadFiles(false);
+});
+
+// ---------------------------------------------------------------- atividade
+
+const LEVELS = { error: 'Erro', warn: 'Aviso', info: 'Info' };
+
+function logItem(l) {
+  return h('li', { class: 'lv-' + l.level }, h('time', null, timeFmt.format(new Date(l.ts * 1000))), h('span', { class: 'lv' }, LEVELS[l.level] || l.level), h('span', { class: 'msg' }, l.msg));
+}
+
+async function pollLog() {
+  try {
+    const r = await api('/api/log?after=' + lastSeq);
+    if (r.lines.length) {
+      logLines.push(...r.lines);
+      lastSeq = r.lines[r.lines.length - 1].seq;
+      if (logLines.length > 1000) logLines = logLines.slice(-1000);
+      renderLog(false);
+    }
+  } catch (_) { /* shown by the status poll */ }
+}
+
+function renderLog(jump) {
+  const recent = logLines.slice(-6).reverse();
+  $('#recent-log').replaceChildren(...(recent.length ? recent.map(logItem) : [h('li', { class: 'none' }, 'Ainda nada a registar.')]));
+  if (view !== 'atividade') return;
+  const wrap = $('#log-wrap');
+  const atBottom = wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 40;
+  const lines = logLines.filter(l => logFilter === 'all' || l.level === 'warn' || l.level === 'error');
+  $('#log-list').replaceChildren(...(lines.length ? lines.map(logItem) : [h('li', { class: 'none' }, 'Nada a mostrar.')]));
+  if (jump || atBottom) wrap.scrollTop = wrap.scrollHeight;
+}
+
+$('#log-filter').addEventListener('click', ev => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  logFilter = b.dataset.f;
+  $$('#log-filter button').forEach(x => x.classList.toggle('on', x === b));
+  renderLog(true);
+});
+
+// ---------------------------------------------------------------- definicoes
+
+const NUMBERS = ['dir_ttl_secs', 'poll_interval_secs', 'upload_delay_secs', 'parallel_uploads', 'readahead_mb', 'ui_port'];
+const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, readahead_mb: 8, atomic_upload: true, ui_port: 8730 };
+
+function fillForm(force) {
+  if (!S || (formDirty && !force)) return;
+  const f = $('#cfg-form');
+  const c = Object.assign({}, DEFAULTS, { mountpoint: S.default_mountpoint }, S.config || {});
+  for (const el of f.elements) {
+    if (!el.name || el.name === 'password') continue;
+    if (el.type === 'checkbox') el.checked = !!c[el.name];
+    else el.value = c[el.name] == null ? '' : c[el.name];
+  }
+  if (force) {
+    f.elements.password.value = '';
+    $('#test-result').textContent = '';
+    formDirty = false;
+  }
+  $('#pw-hint').textContent = S.password_known ? 'Já está guardada. Deixa em branco para a manter.' : '';
+  $('#cfg-title').textContent = S.configured ? 'Definições' : 'Bem-vindo ao nasdrive';
+  $('#cfg-sub').textContent = S.configured
+    ? 'Ao guardar, a ligação à NAS é reiniciada.'
+    : 'Liga-o à tua NAS para começar. Vês tudo o que lá está, mas só é descarregado o que abrires.';
+  $('#mp-hint').textContent = S.platform === 'windows'
+    ? 'Uma pasta num disco NTFS. Aparece no Explorador com os ícones de nuvem do Windows.'
+    : 'Uma pasta vazia; é criada se não existir.';
+  $('#cfg-path').textContent = 'Guardado em ' + S.config_path;
+}
+
+function readForm() {
+  const c = {};
+  for (const el of $('#cfg-form').elements) {
+    if (!el.name || el.name === 'password') continue;
+    c[el.name] = el.type === 'checkbox' ? el.checked : NUMBERS.includes(el.name) ? Number(el.value) : el.value.trim();
+  }
+  return c;
+}
+
+$('#cfg-form').addEventListener('input', () => { formDirty = true; });
+
+$('#btn-test').addEventListener('click', async () => {
+  const f = $('#cfg-form');
+  const c = readForm();
+  const out = $('#test-result');
+  out.className = 'small muted';
+  out.textContent = 'A testar…';
+  try {
+    const r = await api('/api/test', { url: c.url, username: c.username, password: f.elements.password.value, accept_invalid_certs: c.accept_invalid_certs });
+    if (r.ok) {
+      out.className = 'small ok';
+      out.textContent = `Ligação OK: ${plural(r.items, 'item', 'itens')} nessa pasta.`;
+    } else {
+      out.className = 'small bad';
+      out.textContent = r.error;
+      if (r.cert_problem) {
+        out.append(' ', h('button', { type: 'button', class: 'btn sm', onclick: () => { f.elements.accept_invalid_certs.checked = true; formDirty = true; $('#btn-test').click(); } }, 'Confiar e testar outra vez'));
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof Unauthorized)) { out.className = 'small bad'; out.textContent = e.message; }
+  }
+});
+
+async function save(inFile) {
+  const f = $('#cfg-form');
+  const body = { config: readForm(), password: f.elements.password.value || null, store_in_file: inFile };
+  const r = await api('/api/config', body);
+  if (!r.ok && r.keyring_error) {
+    const ok = confirm('O cofre de passwords do sistema não está disponível:\n' + r.keyring_error +
+      '\n\nGuardar a password no ficheiro de definições (só a tua conta o consegue ler)?');
+    if (ok) return save(true);
+    return;
+  }
+  formDirty = false;
+  toast('Definições guardadas. A ligar à NAS…', 'ok');
+  location.hash = '#/';
+  burst();
+}
+
+$('#cfg-form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const btn = $('#btn-save');
+  btn.disabled = true;
+  try { await save(false); } catch (e) { report(e); }
+  btn.disabled = false;
+});
+
+// ---------------------------------------------------------------- routing
+
+const VIEWS = { '': 'estado', ficheiros: 'ficheiros', atividade: 'atividade', definicoes: 'definicoes' };
+const TITLES = { estado: 'Estado', ficheiros: 'Ficheiros', atividade: 'Atividade', definicoes: 'Definições' };
+
+function route() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/');
+  view = VIEWS[parts[0]] || 'estado';
+  $$('.view').forEach(v => { v.hidden = v.id !== 'v-' + view; });
+  $$('nav.menu a').forEach(a => a.classList.toggle('on', a.dataset.view === view));
+  document.title = TITLES[view] + ' · nasdrive';
+  if (view === 'ficheiros') {
+    try { cwd = parts.slice(1).filter(Boolean).map(decodeURIComponent).join('/'); } catch (_) { cwd = ''; }
+    loadFiles(true);
+  } else if (view === 'definicoes') {
+    fillForm(true);
+  } else if (view === 'atividade') {
+    renderLog(true);
+  }
+}
+
+$$('[data-icon]').forEach(el => el.prepend(icon(el.dataset.icon)));
+window.addEventListener('hashchange', route);
+
+(async () => {
+  if (!token) { $('#locked').hidden = false; return; }
+  await refreshState();
+  if (S && !S.configured && !location.hash.startsWith('#/definicoes')) history.replaceState(null, '', '#/definicoes');
+  route();
+  pollLog();
+  setInterval(refreshState, 2000);
+  setInterval(pollLog, 2000);
+  setInterval(() => {
+    if (view === 'ficheiros' && !document.hidden && S && S.phase === 'running') loadFiles(false);
+  }, 5000);
+})();
+</script>
+</body>
+</html>

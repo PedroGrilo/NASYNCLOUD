@@ -1,0 +1,57 @@
+[package]
+name = "nasdrive"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+description = "Files on demand para NAS com WebDAV (UGREEN UGOS e companhia): monta a NAS como pasta local, descarrega so o que abres e sincroniza as alteracoes."
+
+[features]
+default = ["keyring"]
+# Guarda a password no cofre do sistema (Credential Manager / Keychain / Secret Service).
+keyring = ["dep:keyring"]
+# So para `cargo check --target aarch64-apple-darwin` a partir de outro SO (sem macFUSE instalado).
+macos-no-mount = ["fuser/macos-no-mount"]
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+futures-util = "0.3"
+http-body-util = "0.1"
+httpdate = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+log = "0.4"
+percent-encoding = "2"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "stream"] }
+roxmltree = "0.21"
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "signal"] }
+tokio-util = { version = "0.7", features = ["io"] }
+toml = "1"
+keyring = { version = "4", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+fuser = "0.18"
+libc = "0.2"
+redb = "4"
+xattr = "1"
+
+[target.'cfg(windows)'.dependencies]
+cloud-filter = "0.0.7"
+
+[dev-dependencies]
+dav-server = { version = "0.12", default-features = false, features = ["localfs"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
