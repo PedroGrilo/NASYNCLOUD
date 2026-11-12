@@ -6,19 +6,21 @@ use anyhow::{anyhow, bail, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
 use serde::{Deserialize, Serialize};
 
-pub const PASSWORD_ENV: &str = "NASDRIVE_PASSWORD";
+pub const PASSWORD_ENV: &str = "NASYNCLOUD_PASSWORD";
 /// Default port of the local web interface.
 pub const DEFAULT_UI_PORT: u16 = 8730;
 #[cfg(feature = "keyring")]
-const KEYRING_SERVICE: &str = "nasdrive";
+const KEYRING_SERVICE: &str = "nasyncloud";
+/// The name used before 1.0 (folders, keyring entries): read once and moved over.
+const LEGACY_NAME: &str = "nasdrive";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// WebDAV address of the folder to mount, e.g. `http://192.168.1.50:5005/Documentos`.
     pub url: String,
     pub username: String,
-    /// Plain-text password. Prefer the system keyring (`nasdrive setup`) or the
-    /// `NASDRIVE_PASSWORD` environment variable.
+    /// Plain-text password. Prefer the system keyring (`nasyncloud setup`) or the
+    /// `NASYNCLOUD_PASSWORD` environment variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     /// Where the NAS shows up: an empty folder on Linux/macOS, the sync folder on Windows.
@@ -106,7 +108,7 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {} (run `nasdrive setup` first)", path.display()))?;
+        let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {} (run `nasyncloud setup` first)", path.display()))?;
         let cfg: Config = toml::from_str(&text).with_context(|| format!("invalid configuration in {}", path.display()))?;
         cfg.cache_max_bytes()?;
         if cfg.url.trim().is_empty() || cfg.username.trim().is_empty() {
@@ -165,8 +167,15 @@ impl Config {
                 Ok(pw) => return Ok(pw),
                 Err(e) => log::debug!("keyring lookup failed: {e}"),
             }
+            // Saved before 1.0, under the old name: copy it to the new entry.
+            if let Ok(pw) = keyring::Entry::new(LEGACY_NAME, &self.keyring_account()).and_then(|e| e.get_password()) {
+                if let Err(e) = self.store_password(&pw) {
+                    log::debug!("could not move the password to the new keyring entry: {e}");
+                }
+                return Ok(pw);
+            }
         }
-        Err(anyhow!("no password found: run `nasdrive setup`, or set the {PASSWORD_ENV} environment variable"))
+        Err(anyhow!("no password found: run `nasyncloud setup`, or set the {PASSWORD_ENV} environment variable"))
     }
 
     /// Stores the password in the system keyring. Fails when there is none
@@ -191,7 +200,29 @@ impl Config {
 }
 
 fn project_dirs() -> Result<ProjectDirs> {
-    ProjectDirs::from("", "", "nasdrive").ok_or_else(|| anyhow!("cannot determine the home directory"))
+    let dirs = ProjectDirs::from("", "", "nasyncloud").ok_or_else(|| anyhow!("cannot determine the home directory"))?;
+    migrate_legacy_dirs(&dirs);
+    Ok(dirs)
+}
+
+/// Before 1.0 the app was called nasdrive: move its settings, index and cache
+/// to the new folders once (only when the new ones do not exist yet).
+fn migrate_legacy_dirs(dirs: &ProjectDirs) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let Some(old) = ProjectDirs::from("", "", LEGACY_NAME) else { return };
+        for (from, to) in [(old.config_dir(), dirs.config_dir()), (old.data_local_dir(), dirs.data_local_dir()), (old.cache_dir(), dirs.cache_dir())] {
+            if from != to && from.exists() && !to.exists() {
+                if let Some(parent) = to.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::rename(from, to) {
+                    Ok(()) => log::info!("moved {} to {}", from.display(), to.display()),
+                    Err(e) => log::warn!("could not move {} to {}: {e}", from.display(), to.display()),
+                }
+            }
+        }
+    });
 }
 
 pub fn expand_tilde(path: &Path) -> PathBuf {

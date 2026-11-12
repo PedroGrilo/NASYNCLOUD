@@ -1,14 +1,14 @@
 [package]
-name = "nasdrive-desktop"
-version = "0.2.1"
+name = "nasyncloud-desktop"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.90"
-description = "nasdrive na bandeja / barra de menus: o painel e as janelas à volta do serviço nasdrive."
+description = "NASYNCLOUD na bandeja / barra de menus: o painel e as janelas à volta do serviço nasyncloud."
 publish = false
 
-# Deliberately does not depend on the `nasdrive` crate: that one links macFUSE's
+# Deliberately does not depend on the `nasyncloud` crate: that one links macFUSE's
 # libfuse on macOS, and this app must start (and say so) when macFUSE is missing.
-# It runs the `nasdrive` binary next to it (`nasdrive serve`) and shows its pages.
+# It runs the `nasyncloud` binary next to it (`nasyncloud serve`) and shows its pages.
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

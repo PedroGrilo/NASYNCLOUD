@@ -1,6 +1,6 @@
 [package]
-name = "nasdrive"
-version = "0.2.1"
+name = "nasyncloud"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.90"
 description = "Files on demand para NAS com WebDAV (UGREEN UGOS e companhia): monta a NAS como pasta local, descarrega so o que abres e sincroniza as alteracoes."

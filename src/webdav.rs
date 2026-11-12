@@ -52,7 +52,7 @@ impl WebDav {
         }
         let base_path = percent_decode_str(parsed.path()).decode_utf8_lossy().trim_end_matches('/').to_string();
         let client = reqwest::Client::builder()
-            .user_agent(concat!("nasdrive/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("nasyncloud/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
             .pool_idle_timeout(Duration::from_secs(60))
             .tcp_keepalive(Duration::from_secs(30))

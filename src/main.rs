@@ -1,13 +1,13 @@
-//! `nasdrive` command line.
+//! `nasyncloud` command line.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use nasdrive::config::{Config, PASSWORD_ENV};
-use nasdrive::remote::{Remote, RemoteError};
-use nasdrive::webdav::WebDav;
+use nasyncloud::config::{Config, PASSWORD_ENV};
+use nasyncloud::remote::{Remote, RemoteError};
+use nasyncloud::webdav::WebDav;
 
 #[cfg(unix)]
 mod fuse;
@@ -21,10 +21,10 @@ mod win;
 
 #[derive(Parser)]
 #[command(
-    name = "nasdrive",
+    name = "nasyncloud",
     version,
     about = "Files on demand for a WebDAV NAS: browse everything, download only what you open.",
-    long_about = "Files on demand for a WebDAV NAS: browse everything, download only what you open.\n\nWithout a command, opens the interface (and starts nasdrive if it is not running)."
+    long_about = "Files on demand for a WebDAV NAS: browse everything, download only what you open.\n\nWithout a command, opens the interface (and starts nasyncloud if it is not running)."
 )]
 struct Cli {
     /// Configuration file (default: the per-user configuration folder).
@@ -39,7 +39,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Open the interface in the browser, starting nasdrive if it is not running (the default).
+    /// Open the interface in the browser, starting nasyncloud if it is not running (the default).
     Ui,
     /// Ask for the NAS address and credentials in the terminal and save them.
     Setup,
@@ -90,7 +90,7 @@ fn run(cli: Cli) -> Result<()> {
     let command = cli.command.unwrap_or(Command::Ui);
     #[cfg(unix)]
     if !matches!(command, Command::Mount | Command::Ui | Command::Serve) {
-        // Let `nasdrive ls | head` end quietly instead of panicking on a closed pipe.
+        // Let `nasyncloud ls | head` end quietly instead of panicking on a closed pipe.
         // SAFETY: restoring the default disposition of a signal is always sound.
         unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     }
@@ -102,9 +102,9 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(unix)]
         Command::Unmount => unix::force_unmount(&Config::load(&path)?.mountpoint()),
         #[cfg(unix)]
-        Command::Pin { paths } => unix::set_all(&paths, nasdrive::vfs::XATTR_PIN, b"1", "kept offline"),
+        Command::Pin { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_PIN, b"1", "kept offline"),
         #[cfg(unix)]
-        Command::Unpin { paths } => unix::set_all(&paths, nasdrive::vfs::XATTR_PIN, b"0", "no longer kept offline"),
+        Command::Unpin { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_PIN, b"0", "no longer kept offline"),
         #[cfg(unix)]
         Command::Free { paths } => unix::free(&paths),
         #[cfg(unix)]
@@ -114,7 +114,7 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(unix)]
         Command::Ls { dir } => unix::ls(&dir.unwrap_or_else(|| PathBuf::from("."))),
         #[cfg(unix)]
-        Command::Refresh { paths } => unix::set_all(&paths, nasdrive::vfs::XATTR_REFRESH, b"1", "refreshed"),
+        Command::Refresh { paths } => unix::set_all(&paths, nasyncloud::vfs::XATTR_REFRESH, b"1", "refreshed"),
         #[cfg(windows)]
         Command::Unregister => win::unregister(&Config::load(&path)?),
     }
@@ -193,12 +193,12 @@ fn setup(path: &Path) -> Result<()> {
             if confirm("Store the password in the settings file instead (readable only by your user)?")? {
                 cfg.password = Some(password);
             } else {
-                println!("Then set the {PASSWORD_ENV} environment variable before running `nasdrive mount`.");
+                println!("Then set the {PASSWORD_ENV} environment variable before running `nasyncloud mount`.");
             }
         }
     }
     cfg.save(path)?;
-    println!("\nAll set. Start it with `nasdrive ui` (opens the interface) or `nasdrive mount` (no interface window).");
+    println!("\nAll set. Start it with `nasyncloud ui` (opens the interface) or `nasyncloud mount` (no interface window).");
     Ok(())
 }
 

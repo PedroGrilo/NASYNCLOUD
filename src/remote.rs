@@ -129,10 +129,12 @@ pub fn split(path: &str) -> (&str, &str) {
 }
 
 /// Names we create on the server for in-flight uploads; never shown or synced.
-pub const PART_SUFFIX: &str = ".nasdrive-part";
+pub const PART_SUFFIX: &str = ".nasyncloud-part";
+/// Left over by versions before 1.0 (then called nasdrive); still cleaned up.
+const LEGACY_PART_SUFFIX: &str = ".nasdrive-part";
 
 pub fn is_part_file(name: &str) -> bool {
-    name.ends_with(PART_SUFFIX)
+    name.ends_with(PART_SUFFIX) || name.ends_with(LEGACY_PART_SUFFIX)
 }
 
 /// Name for the local version of a file that changed on both sides, e.g.

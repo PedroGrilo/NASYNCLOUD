@@ -32,9 +32,9 @@ use cloud_filter::root::{HydrationPolicy, HydrationType, PopulationType, Securit
 use cloud_filter::usn::Usn;
 use cloud_filter::utility::WriteAt as _;
 use futures_util::StreamExt;
-use nasdrive::config::Config;
-use nasdrive::remote::{self, norm_etag, Entry, Remote, RemoteError, Version};
-use nasdrive::webdav::WebDav;
+use nasyncloud::config::Config;
+use nasyncloud::remote::{self, norm_etag, Entry, Remote, RemoteError, Version};
+use nasyncloud::webdav::WebDav;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
@@ -318,7 +318,7 @@ impl Engine {
         } else {
             ph.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(identity), NO_USN)?;
         }
-        log::info!("uploaded {rel} ({})", nasdrive::config::format_size(meta.len()));
+        log::info!("uploaded {rel} ({})", nasyncloud::config::format_size(meta.len()));
         Ok(())
     }
 
@@ -692,7 +692,7 @@ impl SyncFilter for Hooks {
                     self.0.enqueue(path, SETTLE);
                 }
             }
-            StateWatchEvent::Stopped(e) => log::error!("the folder watcher stopped ({e}); restart nasdrive to pick up local changes again"),
+            StateWatchEvent::Stopped(e) => log::error!("the folder watcher stopped ({e}); restart nasyncloud to pick up local changes again"),
         }
     }
 }
@@ -700,7 +700,7 @@ impl SyncFilter for Hooks {
 fn sync_root_id(cfg: &Config) -> Result<SyncRootId> {
     // One registration per (address, user), so several NAS folders can coexist.
     let account = cfg.state_dir()?.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(SyncRootIdBuilder::new("nasdrive").user_security_id(SecurityId::current_user()?).account_name(account).build())
+    Ok(SyncRootIdBuilder::new("nasyncloud").user_security_id(SecurityId::current_user()?).account_name(account).build())
 }
 
 /// A connected sync folder: the Cloud Files connection plus the worker that
@@ -766,7 +766,7 @@ impl Mounted {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<()>>();
         let worker = {
             let (engine, stop, ended, root) = (engine.clone(), stop.clone(), ended.clone(), root.clone());
-            std::thread::Builder::new().name("nasdrive-sync".into()).spawn(move || {
+            std::thread::Builder::new().name("nasyncloud-sync".into()).spawn(move || {
                 match Session::new().connect(&root, Hooks(engine.clone())) {
                     Ok(connection) => {
                         let _ = ready_tx.send(Ok(()));
@@ -803,7 +803,7 @@ impl Mounted {
     }
 
     /// Recent uploads and downloads. Not recorded by the Windows engine yet.
-    pub fn transfers(&self) -> Vec<nasdrive::activity::Transfer> {
+    pub fn transfers(&self) -> Vec<nasyncloud::activity::Transfer> {
         Vec::new()
     }
 

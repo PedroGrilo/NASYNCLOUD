@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nasdrive</title>
+<title>NASYNCLOUD</title>
 <style>
 :root{
   --line:rgba(255,255,255,.09);--line-hi:rgba(255,255,255,.16);
@@ -22,10 +22,8 @@ body:not(.shell) .panel{width:360px;height:560px}
   box-shadow:0 18px 50px rgba(0,0,0,.45);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}
 .panel::before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 60% at 0 0,rgba(99,102,241,.22),transparent 60%),radial-gradient(80% 50% at 100% 100%,rgba(245,158,11,.08),transparent 60%)}
 .top{position:relative;display:flex;align-items:center;gap:10px;padding:14px 12px 12px 14px;border-bottom:1px solid var(--line)}
-.logo{width:34px;height:34px;flex:none;border-radius:10px;background:linear-gradient(#818cf8,#4f46e5);display:grid;place-items:center;box-shadow:0 4px 14px rgba(99,102,241,.35)}
-.logo i{display:block;width:18px;height:5px;border-radius:2px;background:#fff;position:relative;margin:1.5px 0}
-.logo i::after{content:"";position:absolute;right:3px;top:1.5px;width:2px;height:2px;border-radius:50%;background:var(--amber)}
-.logo i+i{opacity:.62}
+.logo{width:34px;height:34px;flex:none}
+.logo svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 12px rgba(99,102,241,.4))}
 .who{flex:1;min-width:0}
 .who strong{display:block;font-size:14px;letter-spacing:.2px}
 .who small{display:flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -84,16 +82,16 @@ body:not(.shell) .panel{width:360px;height:560px}
 <body>
 <div class="panel">
   <header class="top">
-    <div class="logo" aria-hidden="true"><i></i><i></i></div>
-    <div class="who"><strong>nasdrive</strong><small><span class="dot" id="dot"></span><span id="status">A carregar…</span></small></div>
+    <div class="logo"><svg viewBox="100 100 824 824" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#lg)"/><g fill="#fff"><circle cx="375" cy="545" r="115"/><circle cx="525" cy="470" r="165"/><circle cx="660" cy="560" r="105"/><rect x="285" y="545" width="470" height="175" rx="87"/></g><g fill="none" stroke="#4f46e5" stroke-width="40" stroke-linecap="round"><path d="M418 541A100 100 0 0 1 606 541"/><path d="M606 609A100 100 0 0 1 418 609"/></g><g fill="#4f46e5"><polygon points="622,584 640,521 572,540"/><polygon points="402,566 384,629 452,610"/></g><circle cx="700" cy="650" r="24" fill="#fbbf24"/></svg></div>
+    <div class="who"><strong>NASYNCLOUD</strong><small><span class="dot" id="dot"></span><span id="status">A carregar…</span></small></div>
     <button class="ib" id="b-folder" type="button" title="Abrir a pasta da NAS" aria-label="Abrir a pasta da NAS"></button>
     <button class="ib" id="b-menu" type="button" title="Mais opções" aria-label="Mais opções" aria-haspopup="menu"></button>
     <div class="menu" id="menu" role="menu" hidden>
-      <button type="button" role="menuitem" data-act="main" data-icon="ext">Abrir o nasdrive</button>
+      <button type="button" role="menuitem" data-act="main" data-icon="ext">Abrir o NASYNCLOUD</button>
       <button type="button" role="menuitem" data-act="settings" data-icon="gear">Definições</button>
       <button type="button" role="menuitem" data-act="toggle" id="m-toggle" data-icon="pause">Pausar sincronização</button>
       <hr>
-      <button type="button" role="menuitem" data-act="quit" id="m-quit" class="danger" data-icon="power">Sair do nasdrive</button>
+      <button type="button" role="menuitem" data-act="quit" id="m-quit" class="danger" data-icon="power">Sair do NASYNCLOUD</button>
     </div>
   </header>
   <div class="banner" id="banner" hidden></div>
@@ -105,7 +103,7 @@ body:not(.shell) .panel{width:360px;height:560px}
   </div>
   <footer class="foot">
     <div class="usage"><div class="bar"><span id="bar"></span></div><small id="usage">—</small></div>
-    <button class="link" id="b-open" type="button">Abrir o nasdrive</button>
+    <button class="link" id="b-open" type="button" title="Abrir o NASYNCLOUD">Ver tudo</button>
   </footer>
 </div>
 <script>
@@ -169,7 +167,7 @@ function ago(s) {
 
 // ---------------------------------------------------------------- token, API, desktop app
 
-const TOKEN_KEY = 'nasdrive.token';
+const TOKEN_KEY = 'nasyncloud.token';
 let token = '';
 try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage disabled */ }
 // The desktop app opens this page as `/panel#t=TOKEN&shell=1`.
@@ -187,7 +185,7 @@ document.body.classList.toggle('shell', shell);
 class Unauthorized extends Error {}
 
 async function api(path, body) {
-  const opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'x-nasdrive-token': token } };
+  const opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'x-nasyncloud-token': token } };
   if (body !== undefined) {
     opts.headers['content-type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -217,7 +215,7 @@ function openPath(rel) {
 
 // ---------------------------------------------------------------- rendering
 
-let S = null;        // /api/state, null when nasdrive does not answer
+let S = null;        // /api/state, null when the service does not answer
 let T = [];          // /api/transfers
 let locked = false;  // wrong or missing token
 let flashMsg = '', flashUntil = 0;
@@ -232,7 +230,7 @@ function flash(msg) {
 function status() {
   const active = T.filter(t => t.active > 0);
   if (locked) return ['err', 'Sem acesso'];
-  if (!S) return ['err', 'O nasdrive não está a correr'];
+  if (!S) return ['err', 'O NASYNCLOUD não está a correr'];
   if (!S.configured) return ['warn', 'Falta ligar à NAS'];
   if (S.phase === 'starting') return ['busy', 'A ligar…'];
   if (S.phase === 'stopping') return ['busy', 'A parar…'];
@@ -252,8 +250,8 @@ function banner() {
   const b = (kind, ic, text, button, onclick) =>
     [kind, [icon(ic), h('div', null, text, button ? h('div', null, h('button', { type: 'button', onclick }, button)) : null)]];
   if (Date.now() < flashUntil) return b('err', 'alert', flashMsg);
-  if (locked) return b('err', 'alert', 'Este painel não tem acesso ao nasdrive. Abre-o a partir da app nasdrive.');
-  if (!S) return b('err', 'alert', 'O nasdrive não está a responder.', 'Tentar de novo', () => { if (!app('restart')) poll(); });
+  if (locked) return b('err', 'alert', 'Este painel não tem acesso ao NASYNCLOUD. Abre-o a partir da app NASYNCLOUD.');
+  if (!S) return b('err', 'alert', 'O NASYNCLOUD não está a responder.', 'Tentar de novo', () => { if (!app('restart')) poll(); });
   if (!S.configured) return b('info', 'gear', 'Indica o endereço da NAS para começar.', 'Configurar', () => openMain('definicoes'));
   if (S.error) return b('err', 'alert', S.error);
   if (S.phase === 'stopped') return b('info', 'pause', 'A pasta da NAS não está montada.', 'Retomar', () => act('/api/mount'));
@@ -382,7 +380,7 @@ let quitArmed = 0;
 function closeMenu() {
   menu.hidden = true;
   quitArmed = 0;
-  $('#m-quit').replaceChildren(icon('power'), 'Sair do nasdrive');
+  $('#m-quit').replaceChildren(icon('power'), 'Sair do NASYNCLOUD');
 }
 $('#b-menu').addEventListener('click', ev => { ev.stopPropagation(); if (menu.hidden) menu.hidden = false; else closeMenu(); });
 document.addEventListener('click', ev => { if (!menu.hidden && !menu.contains(ev.target)) closeMenu(); });

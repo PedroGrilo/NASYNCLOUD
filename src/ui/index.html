@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>nasdrive</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%236366f1'/%3E%3Crect x='8' y='9' width='16' height='5' rx='1.5' fill='%23fff'/%3E%3Crect x='8' y='17' width='16' height='5' rx='1.5' fill='%23fff' fill-opacity='.6'/%3E%3Ccircle cx='21' cy='11.5' r='1.3' fill='%23fbbf24'/%3E%3Ccircle cx='21' cy='19.5' r='1.3' fill='%23fbbf24'/%3E%3C/svg%3E">
+<title>NASYNCLOUD</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg viewBox='100 100 824 824' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='lg' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23818cf8'/%3E%3Cstop offset='1' stop-color='%234f46e5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='100' y='100' width='824' height='824' rx='185' fill='url%28%23lg%29'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='375' cy='545' r='115'/%3E%3Ccircle cx='525' cy='470' r='165'/%3E%3Ccircle cx='660' cy='560' r='105'/%3E%3Crect x='285' y='545' width='470' height='175' rx='87'/%3E%3C/g%3E%3Cg fill='none' stroke='%234f46e5' stroke-width='40' stroke-linecap='round'%3E%3Cpath d='M418 541A100 100 0 0 1 606 541'/%3E%3Cpath d='M606 609A100 100 0 0 1 418 609'/%3E%3C/g%3E%3Cg fill='%234f46e5'%3E%3Cpolygon points='622,584 640,521 572,540'/%3E%3Cpolygon points='402,566 384,629 452,610'/%3E%3C/g%3E%3Ccircle cx='700' cy='650' r='24' fill='%23fbbf24'/%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#080a16;
@@ -268,8 +268,8 @@ details.card[open]>summary{margin-bottom:16px}
 <div class="app">
   <aside class="side glass">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#6d28d9"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="url(#lg)"/><rect x="8" y="9" width="16" height="5" rx="1.6" fill="#fff" fill-opacity=".92"/><rect x="8" y="17" width="16" height="5" rx="1.6" fill="#fff" fill-opacity=".55"/><circle cx="21" cy="11.5" r="1.3" fill="#fbbf24"/><circle cx="21" cy="19.5" r="1.3" fill="#fbbf24"/></svg>
-      <div><b>nasdrive</b><small>ficheiros a pedido</small></div>
+      <svg viewBox="100 100 824 824" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#lg)"/><g fill="#fff"><circle cx="375" cy="545" r="115"/><circle cx="525" cy="470" r="165"/><circle cx="660" cy="560" r="105"/><rect x="285" y="545" width="470" height="175" rx="87"/></g><g fill="none" stroke="#4f46e5" stroke-width="40" stroke-linecap="round"><path d="M418 541A100 100 0 0 1 606 541"/><path d="M606 609A100 100 0 0 1 418 609"/></g><g fill="#4f46e5"><polygon points="622,584 640,521 572,540"/><polygon points="402,566 384,629 452,610"/></g><circle cx="700" cy="650" r="24" fill="#fbbf24"/></svg>
+      <div><b>NASYNCLOUD</b><small>ficheiros a pedido</small></div>
     </div>
     <nav class="menu" aria-label="Secções">
       <a href="#/" data-view="estado" data-icon="home">Estado<span class="badge" id="nav-badge" title="Por enviar" hidden></span></a>
@@ -277,7 +277,7 @@ details.card[open]>summary{margin-bottom:16px}
       <a href="#/atividade" data-view="atividade" data-icon="activity">Atividade</a>
       <a href="#/definicoes" data-view="definicoes" data-icon="gear">Definições</a>
     </nav>
-    <div class="side-foot"><span class="pill" id="conn-pill">…</span><small id="version"></small><button class="btn sm" id="btn-quit" type="button" data-icon="power" title="Desmonta a pasta da NAS e encerra o nasdrive">Sair</button></div>
+    <div class="side-foot"><span class="pill" id="conn-pill">…</span><small id="version"></small><button class="btn sm" id="btn-quit" type="button" data-icon="power" title="Desmonta a pasta da NAS e encerra o NASYNCLOUD">Sair</button></div>
   </aside>
 
   <main>
@@ -322,7 +322,7 @@ details.card[open]>summary{margin-bottom:16px}
 
     <section class="view" id="v-atividade" hidden>
       <header class="page-head">
-        <div><h1>Atividade</h1><p class="muted">O que o nasdrive fez desde que arrancou.</p></div>
+        <div><h1>Atividade</h1><p class="muted">O que o NASYNCLOUD fez desde que arrancou.</p></div>
         <div class="seg" id="log-filter"><button type="button" data-f="all" class="on">Tudo</button><button type="button" data-f="warn">Avisos e erros</button></div>
       </header>
       <div class="glass log-wrap" id="log-wrap"><ul class="log" id="log-list"></ul></div>
@@ -367,7 +367,7 @@ details.card[open]>summary{margin-bottom:16px}
 
 <div id="toasts" aria-live="polite"></div>
 <div class="overlay" id="locked" hidden>
-  <div class="glass lock-card"><h2>Abre pelo nasdrive</h2><p class="muted">Por segurança, esta página só funciona quando é aberta pelo próprio programa. Corre:</p><pre>nasdrive ui</pre></div>
+  <div class="glass lock-card"><h2>Abre pelo NASYNCLOUD</h2><p class="muted">Por segurança, esta página só funciona quando é aberta pelo próprio programa. Corre:</p><pre>nasyncloud ui</pre></div>
 </div>
 
 <script>
@@ -440,7 +440,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // ---------------------------------------------------------------- API
 
-const TOKEN_KEY = 'nasdrive.token';
+const TOKEN_KEY = 'nasyncloud.token';
 let token = '';
 try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage disabled */ }
 {
@@ -457,7 +457,7 @@ try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage di
 class Unauthorized extends Error {}
 
 async function api(path, body) {
-  const opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'x-nasdrive-token': token } };
+  const opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'x-nasyncloud-token': token } };
   if (body !== undefined) {
     opts.headers['content-type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -521,8 +521,8 @@ let quitting = false;
 function renderDown() {
   $('#hero').dataset.kind = 'down';
   $('#hero-icon').replaceChildren(icon('power'));
-  $('#hero-title').textContent = quitting ? 'O nasdrive foi encerrado' : 'O nasdrive não está a correr';
-  $('#hero-detail').textContent = 'Volta a abri-lo pela app nasdrive ou com «nasdrive ui».' + (quitting ? ' Podes fechar este separador.' : '');
+  $('#hero-title').textContent = quitting ? 'O NASYNCLOUD foi encerrado' : 'O NASYNCLOUD não está a correr';
+  $('#hero-detail').textContent = 'Volta a abri-lo pela app NASYNCLOUD ou com «nasyncloud ui».' + (quitting ? ' Podes fechar este separador.' : '');
   $('#btn-toggle').disabled = true;
   $('#btn-open-root').disabled = true;
   $('#btn-quit').disabled = true;
@@ -530,7 +530,7 @@ function renderDown() {
 }
 
 function renderState() {
-  $('#version').textContent = 'nasdrive ' + S.version;
+  $('#version').textContent = 'NASYNCLOUD ' + S.version;
   const info = S.info;
   const phase = S.phase;
   let kind = 'idle', ic = 'stop', title = 'Parado', detail = 'A pasta da NAS não está montada.', pill = 'Parado';
@@ -606,8 +606,8 @@ $('#btn-toggle').addEventListener('click', async () => {
 $('#btn-open-root').addEventListener('click', () => openPath(''));
 $('#btn-quit').addEventListener('click', async () => {
   const pending = S && S.info ? S.info.pending_uploads : 0;
-  const note = pending ? `\n\nAinda há ${plural(pending, 'envio pendente', 'envios pendentes')}: o nasdrive termina-os antes de sair.` : '';
-  if (!confirm('Sair do nasdrive? A pasta da NAS deixa de estar disponível até o voltares a abrir.' + note)) return;
+  const note = pending ? `\n\nAinda há ${plural(pending, 'envio pendente', 'envios pendentes')}: o NASYNCLOUD termina-os antes de sair.` : '';
+  if (!confirm('Sair do NASYNCLOUD? A pasta da NAS deixa de estar disponível até o voltares a abrir.' + note)) return;
   try { await api('/api/quit', {}); } catch (e) { report(e); return; }
   quitting = true;
   S = null;
@@ -833,7 +833,7 @@ function fillForm(force) {
     formDirty = false;
   }
   $('#pw-hint').textContent = S.password_known ? 'Já está guardada. Deixa em branco para a manter.' : '';
-  $('#cfg-title').textContent = S.configured ? 'Definições' : 'Bem-vindo ao nasdrive';
+  $('#cfg-title').textContent = S.configured ? 'Definições' : 'Bem-vindo ao NASYNCLOUD';
   $('#cfg-sub').textContent = S.configured
     ? 'Ao guardar, a ligação à NAS é reiniciada.'
     : 'Liga-o à tua NAS para começar. Vês tudo o que lá está, mas só é descarregado o que abrires.';
@@ -911,7 +911,7 @@ function route() {
   view = VIEWS[parts[0]] || 'estado';
   $$('.view').forEach(v => { v.hidden = v.id !== 'v-' + view; });
   $$('nav.menu a').forEach(a => a.classList.toggle('on', a.dataset.view === view));
-  document.title = TITLES[view] + ' · nasdrive';
+  document.title = TITLES[view] + ' · NASYNCLOUD';
   if (view === 'ficheiros') {
     try { cwd = parts.slice(1).filter(Boolean).map(decodeURIComponent).join('/'); } catch (_) { cwd = ''; }
     loadFiles(true);

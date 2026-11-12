@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use crate::fuse::Unmounter;
-use nasdrive::config::{format_size, Config};
-use nasdrive::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT, XATTR_INFO, XATTR_STATUS};
+use nasyncloud::config::{format_size, Config};
+use nasyncloud::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT, XATTR_INFO, XATTR_STATUS};
 use tokio::sync::watch;
 
 use crate::service::{EntryView, Listing, MountInfo};
@@ -78,7 +78,7 @@ impl Mounted {
     }
 
     /// Recent uploads and downloads, most recent first.
-    pub fn transfers(&self) -> Vec<nasdrive::activity::Transfer> {
+    pub fn transfers(&self) -> Vec<nasyncloud::activity::Transfer> {
         self.vfs.transfers()
     }
 
@@ -206,10 +206,10 @@ pub fn force_unmount(mountpoint: &Path) -> Result<()> {
 }
 
 // ----------------------------------------------------------------------
-// Command line helpers (`nasdrive pin/unpin/free/status/ls/refresh`)
+// Command line helpers (`nasyncloud pin/unpin/free/status/ls/refresh`)
 
 fn not_ours(path: &Path) -> anyhow::Error {
-    anyhow!("{} is not inside a running nasdrive mount", path.display())
+    anyhow!("{} is not inside a running nasyncloud mount", path.display())
 }
 
 fn get_status(path: &Path) -> Result<NodeStatus> {
@@ -273,7 +273,7 @@ pub fn status(paths: &[PathBuf]) -> Result<()> {
 }
 
 pub fn info(mountpoint: &Path) -> Result<()> {
-    let raw = xattr::get(mountpoint, XATTR_INFO).ok().flatten().ok_or_else(|| anyhow!("nothing is mounted on {} (start it with `nasdrive mount` or `nasdrive ui`)", mountpoint.display()))?;
+    let raw = xattr::get(mountpoint, XATTR_INFO).ok().flatten().ok_or_else(|| anyhow!("nothing is mounted on {} (start it with `nasyncloud mount` or `nasyncloud ui`)", mountpoint.display()))?;
     let info: Info = serde_json::from_slice(&raw)?;
     println!("mount:    {}", mountpoint.display());
     println!("NAS:      {}", if info.online { "reachable" } else { "UNREACHABLE (working offline)" });

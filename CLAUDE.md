@@ -4,17 +4,18 @@ Lê isto antes de mexer no projeto. Detalhes em `docs/ARCHITECTURE.md` (como fun
 
 ## O que é
 
-`nasdrive` é um cliente "Files On-Demand" em Rust para uma NAS com WebDAV. A NAS aparece como uma pasta local; só é descarregado o que se abre; as alterações sobem em segundo plano; funciona offline com o que já está no disco. Linux e macOS usam FUSE, Windows usa a Cloud Files API. Tem uma interface web local (`nasdrive ui`).
+**NASYNCLOUD** (binário, crate e pastas: `nasyncloud`; até à 0.2.1 chamava-se `nasdrive`) é um cliente "Files On-Demand" em Rust para uma NAS com WebDAV. A NAS aparece como uma pasta local; só é descarregado o que se abre; as alterações sobem em segundo plano; funciona offline com o que já está no disco. Linux e macOS usam FUSE, Windows usa a Cloud Files API. Tem uma interface web local (`nasyncloud ui`).
 
 A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por isso nada pode correr na NAS: tudo é cliente, falando com o WebDAV que a UGOS já traz (portas 5005 HTTP / 5006 HTTPS).
 
 ## Pessoas e convenções
 
 - Dono: Pedro, engenheiro frontend (React, Vue, TypeScript, sistemas em tempo real). Escreve e espera respostas em **português europeu (pt-PT)**, tom informal. Prefere desenvolvimento modular e iterativo, com resultado pronto a usar.
+- Nome: **NASYNCLOUD** em tudo o que o utilizador vê (interface, app, pacotes, documentação); `nasyncloud` em minúsculas nos identificadores técnicos (binários, crates, pastas, xattrs, header). O macOS e o Windows não distinguem maiúsculas em nomes de ficheiros: o `.app` tem `nasyncloud` e `nasyncloud-desktop` lado a lado, nunca `NASYNCLOUD` + `nasyncloud`.
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v0.2.1, 2026-11-12)
+## Estado atual (v1.0.0, 2026-11-12)
 
 | Parte | Estado |
 |---|---|
@@ -24,7 +25,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 | Interface web | Testada pela API no e2e e verificada visualmente (QtWebEngine em Xvfb), em desktop e largura de telemóvel; capturas em `docs/screenshots/` |
 | WebDAV da UGOS | **Nunca testado contra o servidor real.** Testado contra rclone (Go x/net/webdav) e `dav-server` |
 
-Primeiro passo quando houver acesso a Windows ou à NAS real: `nasdrive -v ui`, configurar numa pasta partilhada de teste e corrigir a partir do registo. A própria UGREEN documenta erros 405 do WebDAV ao criar pastas com rclone/Cyberduck; `WebDav::mkdir` já tenta contornar (stat + barra final), mas é o sítio mais provável de falhar.
+Primeiro passo quando houver acesso a Windows ou à NAS real: `nasyncloud -v ui`, configurar numa pasta partilhada de teste e corrigir a partir do registo. A própria UGREEN documenta erros 405 do WebDAV ao criar pastas com rclone/Cyberduck; `WebDav::mkdir` já tenta contornar (stat + barra final), mas é o sítio mais provável de falhar.
 
 ## Mapa do código
 
@@ -56,16 +57,16 @@ tests/
 tools/
   demo.sh           NAS falsa com conteúdo realista + mount + interface em :18731
   screenshot.py     capturas da interface (QtWebEngine), usado para docs/screenshots
-desktop/          a app da bandeja / barra de menus (Tauri v2), crate `nasdrive-desktop` do workspace
-  src/main.rs       arranca `nasdrive serve` (o binário ao lado), ícone, painel junto ao ícone, janela principal
+desktop/          a app da bandeja / barra de menus (Tauri v2), crate `nasyncloud-desktop` do workspace
+  src/main.rs       arranca `nasyncloud serve` (o binário ao lado), ícone, painel junto ao ícone, janela principal
   dist/index.html   página local de erro (falta o macFUSE, o serviço não arrancou)
   icons/            ícones da app e da bandeja (tray-template.png = símbolo monocromático do macOS)
 examples/
   fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone, p.ex. no macOS
-tools/package-macos.sh   gera dist/nasdrive.app e dist/nasdrive-<versão>-macos-<arch>.dmg (assinatura ad-hoc)
-packaging/macos/  Info.plist (LSUIElement), lançador nasdrive-app (verifica o macFUSE, regista em ~/Library/Logs), LEIA-ME
-packaging/windows/LEIA-ME.txt   vai no zip com o nasdrive.exe
-assets/           icon.svg (fonte) e nasdrive.icns (gerado a partir dele, ver «Lançar uma versão»)
+tools/package-macos.sh   gera dist/NASYNCLOUD.app e dist/NASYNCLOUD-<versão>-macos-<arch>.dmg (assinatura ad-hoc)
+packaging/macos/  Info.plist (LSUIElement), lançador nasyncloud-app (verifica o macFUSE, regista em ~/Library/Logs), LEIA-ME
+packaging/windows/LEIA-ME.txt   vai no zip com o nasyncloud.exe
+assets/           icon.svg (fonte) e nasyncloud.icns (gerado a partir dele, ver «Lançar uma versão»)
 .github/workflows/release.yml   tag v* → testes no macOS e no Windows → .dmg e .exe (zip) → GitHub Release (sem Linux, a pedido do Pedro)
 ```
 
@@ -97,16 +98,16 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **Durabilidade**: um ficheiro só passa a `dirty` com o índice gravado com fsync *antes* do primeiro byte alterado (`prepare_write`). Os ficheiros de cache levam fsync antes de o índice afirmar o que têm (`unsynced`). Commits redb sem fsync só ficam permanentes com o próximo commit durável: o `flush(durable)` sabe se ainda deve um (`commits`/`durable_at`). Foi um bug real (cópias de conflito falsas depois de reiniciar).
 - **Invalidar cache** cria uma nova geração do ficheiro (`<id>-<gen>`); nunca se altera a antiga, para o índice não mentir depois de um crash.
 - **fuser 0.18**: não usar `Session::spawn()`, porque tira o mount ao `SessionUnmounter`. Corre-se `session.run()` numa thread própria; o fim chega por um `watch::Receiver<bool>`.
-- **Windows**: os callbacks da Cloud Files correm em threads da própria API e usam `Handle::block_on`. As operações da interface (`browse`, `pin`, `free`) vão por `spawn_blocking`, porque listar uma pasta por abrir dispara um callback. A conexão vive na thread `nasdrive-sync`.
+- **Windows**: os callbacks da Cloud Files correm em threads da própria API e usam `Handle::block_on`. As operações da interface (`browse`, `pin`, `free`) vão por `spawn_blocking`, porque listar uma pasta por abrir dispara um callback. A conexão vive na thread `nasyncloud-sync`.
 - **Interface**: todo o texto vindo da NAS entra no DOM como texto (função `h()`), nunca `innerHTML`, porque os nomes de ficheiros podem ter qualquer coisa. `[hidden]{display:none!important}` existe porque muitos componentes definem `display`. Em ecrãs estreitos a grelha usa `minmax(0,1fr)`, senão o menu alarga a página.
-- **Segurança da interface**: só 127.0.0.1, token no header `x-nasdrive-token` (guardado em `ui.json`, 0600, mantido entre arranques), verificação do `Host` (421), CSP, corpo até 64 KiB, caminhos com `..` recusados.
+- **Segurança da interface**: só 127.0.0.1, token no header `x-nasyncloud-token` (guardado em `ui.json`, 0600, mantido entre arranques), verificação do `Host` (421), CSP, corpo até 64 KiB, caminhos com `..` recusados.
 - **Testes**: o e2e usa as portas 5005 (rclone) e 18730 (interface); a demo usa 5007 e 18731. Nunca usar `pkill -f` com um padrão que apareça no próprio script: mata a shell que o corre.
-- `tests/e2e.sh` começa por matar qualquer `rclone`/`nasdrive` a correr, incluindo a demo: correr a demo *depois* do e2e.
-- `tests/e2e.sh` e `tools/demo.sh` procuram o binário em `target/debug/`; com `CARGO_TARGET_DIR` diferente, passar `BIN=/caminho/nasdrive`. O e2e aceita `E2E_DIR` (pasta de trabalho), `NAS_SERVER=rclone|fake_nas` e `FAKE_NAS`.
+- `tests/e2e.sh` começa por matar qualquer `rclone`/`nasyncloud` a correr, incluindo a demo: correr a demo *depois* do e2e.
+- `tests/e2e.sh` e `tools/demo.sh` procuram o binário em `target/debug/`; com `CARGO_TARGET_DIR` diferente, passar `BIN=/caminho/nasyncloud`. O e2e aceita `E2E_DIR` (pasta de trabalho), `NAS_SERVER=rclone|fake_nas` e `FAKE_NAS`.
 - **macOS, mount**: o `fuse_mount_compat25` que o `fuser` 0.18 usa falha sempre no macFUSE 5 (-1, errno 0). `fuse.rs` monta com `fuse_mount` + `Session::from_fd` (módulo `macfuse`) e desmonta com `unmount(2)`. Não voltar a `Session::new` no macOS.
 - **macOS, alterações remotas**: o macFUSE não repete `lookup` quando o nome expira. Por isso `getattr`/`open` usam `Vfs::getattr_fresh`, que relê a pasta-mãe, e o `open` devolve `FOPEN_PURGE_UBC`. Sem isto, um ficheiro alterado na NAS fica com o conteúdo antigo.
 - **macOS, `st_blocks`**: o macFUSE ignora-o e calcula-o a partir do tamanho, por isso o `du` não serve no macOS (o e2e salta essa verificação).
-- **App (desktop/)**: não depende da crate `nasdrive` de propósito (ligaria ao libfuse e não arrancaria sem o macFUSE para o dizer). Fala com o serviço por HTTP em 127.0.0.1 (token do `ui.json`). As páginas pedem coisas à app navegando para `/app/<ação>` (main, hide, quit, restart, web), que o `on_navigation` interceta: assim não é preciso IPC do Tauri em páginas servidas por outro processo. O painel é uma janela sem moldura, transparente e sempre por cima, que se esconde ao perder o foco; o `hidden_at` evita que o mesmo clique no ícone o volte a abrir.
+- **App (desktop/)**: não depende da crate `nasyncloud` de propósito (ligaria ao libfuse e não arrancaria sem o macFUSE para o dizer). Fala com o serviço por HTTP em 127.0.0.1 (token do `ui.json`). As páginas pedem coisas à app navegando para `/app/<ação>` (main, hide, quit, restart, web), que o `on_navigation` interceta: assim não é preciso IPC do Tauri em páginas servidas por outro processo. O painel é uma janela sem moldura, transparente e sempre por cima, que se esconde ao perder o foco; o `hidden_at` evita que o mesmo clique no ícone o volte a abrir.
 - **App, compilar para Windows a partir do Mac**: falha no `tauri-build` (precisa de `llvm-rc` para os recursos). Fica para o workflow (runner Windows).
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
 - **macOS, aviso «fuse: forking a threaded process is unsafe»**: vem do `fuse_mount` do libfuse, que lança o `mount_macfuse` a partir de um processo com threads. É inofensivo (o `malloc` do macOS tem handlers de `fork`), mas convém não pôr trabalho entre o `fork` e o `exec`.
@@ -125,7 +126,7 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 
 ## Repositório e máquina local
 
-- GitHub: `https://github.com/PedroGrilo/Files-on-Demand-UGOS`, branch `main`.
+- GitHub: `https://github.com/PedroGrilo/NASYNCLOUD`, branch `main`.
 - Cópia local: `~/ugreen-nas` no Mac do Pedro (Apple Silicon, arm64, macOS 27, SIP ativo). Rust 1.99 e `pkg-config` pelo Homebrew, `gh` autenticado, macFUSE 5.5.0 com o kext autorizado. **Não há rclone**: o e2e usa o `fake_nas`.
 - Verificação Windows no Mac: o `rustup` (`~/.cargo/bin/rustup`) tem o alvo `x86_64-pc-windows-msvc`, mas o `cargo` do PATH é o do Homebrew. Correr `R=~/.cargo/bin/rustup; RUSTC=$($R which rustc) CARGO_TARGET_DIR=target/xwin $($R which cargo) check --target x86_64-pc-windows-msvc`. Não há alvo Linux instalado: o ramo Linux de `fuse.rs` não é compilado no Mac.
 - O `tools/demo.sh` continua a ser só para Linux.
@@ -135,7 +136,7 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - No Mac passam `cargo test` (28/28), `cargo clippy --all-targets` (zero avisos) e `tests/e2e.sh` (63 passam, 0 falham, 1 saltada).
 - `examples/fake_nas.rs` é a NAS falsa (dav-server sobre uma pasta, Basic auth `pedro`/`segredo`, regista cada pedido em stderr como `GET /caminho bytes=…`): `cargo run --example fake_nas -- <pasta> 127.0.0.1:5015`.
 - Motor **kext** do macFUSE: funciona. Antes de o Pedro o autorizar e reiniciar, dava `mount_macfuse: the file system is not available (2)`.
-- Motor **FSKit** (`NASDRIVE_MACFUSE_BACKEND=fskit`): não monta. O módulo `io.macfuse.app.fsmodule.macfuse` não aparece em `pluginkit -m -p com.apple.fskit.fsmodule`, e nem um «hello» em C com libfuse3 monta com `-o backend=fskit`. O problema é do sistema, não do nasdrive.
+- Motor **FSKit** (`NASYNCLOUD_MACFUSE_BACKEND=fskit`): não monta. O módulo `io.macfuse.app.fsmodule.macfuse` não aparece em `pluginkit -m -p com.apple.fskit.fsmodule`, e nem um «hello» em C com libfuse3 monta com `-o backend=fskit`. O problema é do sistema, não do NASYNCLOUD.
 - O `cp` avisa «could not copy extended attributes … Operation not permitted» quando a origem tem `com.apple.*` (por exemplo `com.apple.provenance`). É o `noapplexattr`: o kernel recusa com EPERM. O conteúdo chega bem.
 
 ## Ambiente de desenvolvimento no sandbox do Claude (claude.ai)
@@ -146,4 +147,4 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - O FUSE funciona no sandbox (corre como root): `apt-get install -y fuse3 libssl-dev rclone`.
 - Capturas da interface: `apt-get install -y python3-pyqt6.qtwebengine xvfb fonts-inter`, depois `tools/demo.sh` e `xvfb-run -a python3 tools/screenshot.py 18731 <token> /tmp`.
 - `cargo build` com 1 CPU demora ~2 min na primeira vez.
-- No sandbox usou-se `CARGO_TARGET_DIR=/home/claude/target`, por isso: `BIN=/home/claude/target/debug/nasdrive tools/demo.sh`.
+- No sandbox usou-se `CARGO_TARGET_DIR=/home/claude/target`, por isso: `BIN=/home/claude/target/debug/nasyncloud tools/demo.sh`.

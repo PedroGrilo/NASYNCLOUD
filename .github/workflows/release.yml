@@ -1,7 +1,7 @@
 name: Release
 
-# Builds the macOS .dmg and the Windows zip (the tray app, nasdrive-desktop.exe,
-# plus the nasdrive.exe service it runs), after the tests.
+# Builds the macOS .dmg and the Windows zip (the tray app, nasyncloud-desktop.exe,
+# plus the nasyncloud.exe service it runs), after the tests.
 # - Pushing a tag v* (equal to the version in Cargo.toml, e.g. v0.2.1) also
 #   publishes them in a GitHub Release.
 # - "Run workflow" by hand only builds them; they stay as run artifacts.
@@ -36,7 +36,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
-      - name: Build nasdrive.app and the .dmg
+      - name: Build NASYNCLOUD.app and the .dmg
         run: tools/package-macos.sh
       - uses: actions/upload-artifact@v7
         with:
@@ -52,16 +52,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
-      - run: cargo build --release --locked -p nasdrive -p nasdrive-desktop
+      - run: cargo build --release --locked -p nasyncloud -p nasyncloud-desktop
       - name: Package
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches.Groups[1].Value
           New-Item -ItemType Directory -Force dist/pkg | Out-Null
-          Copy-Item target/release/nasdrive-desktop.exe dist/pkg/
-          Copy-Item target/release/nasdrive.exe dist/pkg/
+          Copy-Item target/release/nasyncloud-desktop.exe dist/pkg/
+          Copy-Item target/release/nasyncloud.exe dist/pkg/
           Copy-Item packaging/windows/LEIA-ME.txt dist/pkg/
-          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/nasdrive-$version-windows-x86_64.zip"
+          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/NASYNCLOUD-$version-windows-x86_64.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -83,4 +83,4 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "nasdrive $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "NASYNCLOUD $GITHUB_REF_NAME" --generate-notes

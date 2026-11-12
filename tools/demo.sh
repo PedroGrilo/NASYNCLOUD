@@ -1,12 +1,12 @@
 #!/bin/bash
 # Demo environment: a fake NAS (rclone serve webdav) with realistic content,
-# mounted by nasdrive with the interface on http://127.0.0.1:18731.
+# mounted by nasyncloud with the interface on http://127.0.0.1:18731.
 # Linux only. Needs rclone and FUSE. Run `cargo build` first.
-# Stop it with:  pkill -INT -x nasdrive; pkill -f "rclone serve webdav /tmp/demo"
+# Stop it with:  pkill -INT -x nasyncloud; pkill -f "rclone serve webdav /tmp/demo"
 set -e
-BIN=${BIN:-$(cd "$(dirname "$0")/.." && pwd)/target/debug/nasdrive}
+BIN=${BIN:-$(cd "$(dirname "$0")/.." && pwd)/target/debug/nasyncloud}
 D=/tmp/demo; N=$D/nas
-fusermount3 -uz $D/mnt 2>/dev/null || true; pkill -x nasdrive || true; pkill -f "rclone serve webdav $D" || true; sleep 0.5
+fusermount3 -uz $D/mnt 2>/dev/null || true; pkill -x nasyncloud || true; pkill -f "rclone serve webdav $D" || true; sleep 0.5
 rm -rf $D; mkdir -p $D/mnt "$N/Documentos/Faturas" "$N/Documentos/Contratos" "$N/Fotos/2026 Férias Algarve" "$N/Fotos/Batizado da Inês" "$N/Vídeos" "$N/Projetos/convite-casamento"
 for m in 07 08 09 10; do head -c 180000 /dev/urandom > "$N/Documentos/Faturas/Fatura EDP 2026-$m.pdf"; done
 head -c 420000 /dev/urandom > "$N/Documentos/Contratos/Contrato arrendamento.pdf"; head -c 950000 /dev/urandom > "$N/Documentos/IRS 2025.pdf"
@@ -25,7 +25,7 @@ ui_port = 18731
 EOT
 (setsid nohup rclone serve webdav $N --dir-cache-time 0s --addr 127.0.0.1:5007 --user pedro --pass segredo > $D/rclone.log 2>&1 < /dev/null &)
 sleep 1.5
-(setsid nohup "$BIN" --config $D/config.toml mount > $D/nasdrive.log 2>&1 < /dev/null &)
+(setsid nohup "$BIN" --config $D/config.toml mount > $D/nasyncloud.log 2>&1 < /dev/null &)
 for i in $(seq 50); do mountpoint -q $D/mnt && break; sleep 0.2; done
 "$BIN" --config $D/config.toml pin $D/mnt/Documentos > /dev/null
 cat "$D/mnt/Fotos/2026 Férias Algarve/IMG_0411.jpg" "$D/mnt/Fotos/2026 Férias Algarve/IMG_0415.jpg" > /dev/null

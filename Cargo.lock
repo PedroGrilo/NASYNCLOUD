@@ -2594,8 +2594,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nasdrive"
-version = "0.2.1"
+name = "nasyncloud"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2629,8 +2629,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nasdrive-desktop"
-version = "0.2.1"
+name = "nasyncloud-desktop"
+version = "1.0.0"
 dependencies = [
  "directories",
  "serde",

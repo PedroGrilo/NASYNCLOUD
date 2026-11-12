@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>pt-PT</string>
-  <key>CFBundleDisplayName</key><string>nasdrive</string>
-  <key>CFBundleExecutable</key><string>nasdrive-desktop</string>
-  <key>CFBundleIconFile</key><string>nasdrive</string>
-  <key>CFBundleIdentifier</key><string>io.github.pedrogrilo.nasdrive</string>
+  <key>CFBundleDisplayName</key><string>NASYNCLOUD</string>
+  <key>CFBundleExecutable</key><string>nasyncloud-desktop</string>
+  <key>CFBundleIconFile</key><string>nasyncloud</string>
+  <key>CFBundleIdentifier</key><string>io.github.pedrogrilo.nasyncloud</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>nasdrive</string>
+  <key>CFBundleName</key><string>NASYNCLOUD</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>@VERSION@</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>

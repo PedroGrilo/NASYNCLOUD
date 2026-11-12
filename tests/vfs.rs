@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{pattern, wait_for, TestServer, PASS, USER};
-use nasdrive::vfs::{NodeId, Pin, Vfs, VfsError, VfsOptions, ROOT};
-use nasdrive::webdav::WebDav;
+use nasyncloud::vfs::{NodeId, Pin, Vfs, VfsError, VfsOptions, ROOT};
+use nasyncloud::webdav::WebDav;
 
 fn options(dir: &Path) -> VfsOptions {
     VfsOptions {
@@ -155,7 +155,7 @@ async fn writes_are_uploaded_in_the_background() {
     assert!(wait_for(10, || srv.exists("empty")).await);
 
     assert!(wait_for(5, || vfs.pending_uploads() == 0).await);
-    assert!(srv.names("").iter().all(|n| !n.contains("nasdrive-part")), "{:?}", srv.names(""));
+    assert!(srv.names("").iter().all(|n| !n.contains("nasyncloud-part")), "{:?}", srv.names(""));
     // Junk files stay local.
     put(&vfs, ROOT, ".DS_Store", b"junk").await;
     tokio::time::sleep(Duration::from_millis(400)).await;

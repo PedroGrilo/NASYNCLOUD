@@ -1,4 +1,4 @@
-//! nasdrive: files on demand for WebDAV NAS boxes.
+//! nasyncloud: files on demand for WebDAV NAS boxes.
 //!
 //! * `remote` / `webdav`: talking to the server.
 //! * `vfs` (Linux/macOS): the on-demand engine behind the FUSE mount.

@@ -5,7 +5,7 @@
 ```
             browser ──HTTP 127.0.0.1──▶ ui.rs ──┐
                                                  ▼
-  nasdrive mount / ui ──▶ service.rs ──▶ Mounted (unix.rs | win.rs)
+  nasyncloud mount / ui ──▶ service.rs ──▶ Mounted (unix.rs | win.rs)
                                                  │
                    Linux/macOS: fuse.rs ◀── vfs/ (árvore, cache, índice redb)
                    Windows:     Cloud Files API ◀── win.rs (placeholders no NTFS)
@@ -53,7 +53,7 @@ Antes de alterar um ficheiro no sítio, ele tem de estar todo em cache e marcado
 
 A fila (`jobs`) tem momento de execução e tentativas, com backoff de 2^n s até 300 s. Há um limite de paralelismo e as pastas são criadas primeiro (ids menores primeiro).
 
-Antes de cada upload é feito um `stat` remoto. Se a versão na NAS não for a versão-base local, cria-se uma cópia de conflito: o ficheiro local muda de nome e a versão da NAS reaparece. Caso contrário, o upload vai para `.<pid>-<ns>-<seq>.nasdrive-part` e depois MOVE com overwrite. Se o servidor recusar o MOVE, passa a upload direto (e marca `overwrite_ok` quando um upload direto interrompido pode ter deixado meia cópia nossa). No fim, verifica o tamanho e adota a versão nova.
+Antes de cada upload é feito um `stat` remoto. Se a versão na NAS não for a versão-base local, cria-se uma cópia de conflito: o ficheiro local muda de nome e a versão da NAS reaparece. Caso contrário, o upload vai para `.<pid>-<ns>-<seq>.nasyncloud-part` e depois MOVE com overwrite. Se o servidor recusar o MOVE, passa a upload direto (e marca `overwrite_ok` quando um upload direto interrompido pode ter deixado meia cópia nossa). No fim, verifica o tamanho e adota a versão nova.
 
 ### Sincronização (`sync.rs`)
 
@@ -73,15 +73,15 @@ Tarefas de fundo:
 
 ### FUSE (`fuse.rs`)
 
-Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`, só no Linux: o macFUSE calcula-o a partir do tamanho). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasdrive.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar.
+Cada pedido do kernel é passado ao runtime Tokio. Os atributos são guardados em cache 1 s. `blocks` reflete os bytes realmente locais (`du`, só no Linux: o macFUSE calcula-o a partir do tamanho). Os comandos da CLI (`pin`, `free`, `status`...) falam com o mount por atributos estendidos `user.nasyncloud.*`, que não aparecem em `listxattr` para o `cp -a` não os copiar.
 
 `getattr` e `open` usam `Vfs::getattr_fresh`, que primeiro relê a pasta-mãe se a listagem tiver mais de `dir_ttl`. No Linux isto já acontecia pelo `lookup`, que o kernel repete quando o nome expira. O macFUSE mantém os nomes em cache e só volta a pedir os atributos. O `open` devolve `FOPEN_PURGE_UBC` no macOS, para o kernel largar as páginas em cache, como o Linux faz ao abrir sem `FOPEN_KEEP_CACHE`.
 
-**Mount no macOS.** O `fuser` 0.18 monta com `fuse_mount_compat25` do libfuse2, que no macFUSE 5 falha sempre (-1, errno 0), porque aí o mount só termina depois de o sistema de ficheiros responder ao INIT. Por isso, no macOS, `fuse.rs` abre o dispositivo com `fuse_mount` (libfuse2, não-compat), passa o descritor a `Session::from_fd`, cujo handshake responde ao INIT, e desmonta com `unmount(2)`. Opções: `noappledouble`, `noapplexattr`, `volname`. `NASDRIVE_MACFUSE_BACKEND=fskit` pede o motor FSKit, que neste momento não monta.
+**Mount no macOS.** O `fuser` 0.18 monta com `fuse_mount_compat25` do libfuse2, que no macFUSE 5 falha sempre (-1, errno 0), porque aí o mount só termina depois de o sistema de ficheiros responder ao INIT. Por isso, no macOS, `fuse.rs` abre o dispositivo com `fuse_mount` (libfuse2, não-compat), passa o descritor a `Session::from_fd`, cujo handshake responde ao INIT, e desmonta com `unmount(2)`. Opções: `noappledouble`, `noapplexattr`, `volname`. `NASYNCLOUD_MACFUSE_BACKEND=fskit` pede o motor FSKit, que neste momento não monta.
 
 ## App de bandeja (`desktop/`)
 
-Uma casca Tauri v2 que não tem o motor: arranca o binário `nasdrive` que está ao lado (`nasdrive serve`, o modo `Background` do serviço: interface sem browser) e mostra as páginas que ele serve em 127.0.0.1. São duas: `/panel`, o painel compacto junto ao ícone, e `/`, a interface completa numa janela normal. Lê o porto e o token do `ui.json`, e para saber se o serviço está vivo usa um GET `/api/ping` em HTTP simples, sobre `TcpStream`.
+Uma casca Tauri v2 que não tem o motor: arranca o binário `nasyncloud` que está ao lado (`nasyncloud serve`, o modo `Background` do serviço: interface sem browser) e mostra as páginas que ele serve em 127.0.0.1. São duas: `/panel`, o painel compacto junto ao ícone, e `/`, a interface completa numa janela normal. Lê o porto e o token do `ui.json`, e para saber se o serviço está vivo usa um GET `/api/ping` em HTTP simples, sobre `TcpStream`.
 
 As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar (por exemplo, falta o macFUSE), o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state` e `/api/transfers` a cada 1,5 s enquanto está visível. As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
 
@@ -97,7 +97,7 @@ Callbacks:
 - `dehydrate`: aceite sempre.
 - `state_changed`: o vigia da pasta põe caminhos na fila.
 
-A thread `nasdrive-sync` tem a ligação e o ciclo de trabalho. Processa a fila depois de 2 s de acalmia: envia ficheiros novos ou modificados e converte-os em placeholders, e trata de fixar/desafixar. Sonda as pastas já abertas a cada `poll_interval`, ou a cada 15 s quando está offline. As operações feitas pelo próprio motor ficam marcadas em `ours`, para não voltarem como eco.
+A thread `nasyncloud-sync` tem a ligação e o ciclo de trabalho. Processa a fila depois de 2 s de acalmia: envia ficheiros novos ou modificados e converte-os em placeholders, e trata de fixar/desafixar. Sonda as pastas já abertas a cada `poll_interval`, ou a cada 15 s quando está offline. As operações feitas pelo próprio motor ficam marcadas em `ours`, para não voltarem como eco.
 
 ## Serviço e interface
 
@@ -107,11 +107,11 @@ Escreve no stderr no formato do env_logger e guarda as últimas 1000 linhas de n
 
 ### `ui.rs`
 
-hyper 1 (HTTP/1.1) em `127.0.0.1:ui_port`. A página é servida sem autenticação; tudo em `/api/*` exige o header `x-nasdrive-token`.
+hyper 1 (HTTP/1.1) em `127.0.0.1:ui_port`. A página é servida sem autenticação; tudo em `/api/*` exige o header `x-nasyncloud-token`.
 
 | Pedido | O que faz |
 |---|---|
-| `GET /api/ping` | Saúde (usado pelo `nasdrive ui` para encontrar uma instância a correr) |
+| `GET /api/ping` | Saúde (usado pelo `nasyncloud ui` para encontrar uma instância a correr) |
 | `GET /api/state` | Versão, plataforma, definições (sem password), fase, erro, `MountInfo`, caminhos |
 | `GET /api/log?after=N` | Linhas novas do registo |
 | `POST /api/test` | `{url, username, password?, accept_invalid_certs}` → `{ok, items, error, cert_problem}` |

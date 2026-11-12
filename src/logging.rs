@@ -22,7 +22,7 @@ pub struct Line {
 }
 
 struct Logger {
-    /// Level for nasdrive's own messages; other crates only report warnings.
+    /// Level for nasyncloud's own messages; other crates only report warnings.
     level: LevelFilter,
     lines: Mutex<(u64, VecDeque<Line>)>,
 }
@@ -56,7 +56,7 @@ fn level_name(level: Level) -> &'static str {
 impl Log for Logger {
     fn enabled(&self, meta: &Metadata) -> bool {
         let target = meta.target();
-        if target.starts_with("nasdrive") {
+        if target.starts_with("nasyncloud") {
             meta.level() <= self.level
         } else if target.starts_with("fuser") {
             meta.level() <= Level::Error
@@ -71,7 +71,7 @@ impl Log for Logger {
         }
         let ts = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let msg = record.args().to_string();
-        let stamp = nasdrive::remote::timestamp(ts); // "2026-11-12 153012"
+        let stamp = nasyncloud::remote::timestamp(ts); // "2026-11-12 153012"
         let iso = format!("{}T{}:{}:{}Z", &stamp[..10], &stamp[11..13], &stamp[13..15], &stamp[15..17]);
         let _ = writeln!(std::io::stderr(), "[{iso} {:<5} {}] {msg}", record.level(), record.target());
         if record.level() <= Level::Info {

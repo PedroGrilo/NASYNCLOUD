@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- App icon (macOS grid: 824 px tile with 100 px margins). Same motif as the interface favicon. -->
+  <!-- NASYNCLOUD app icon (macOS grid: 824 px tile with 100 px margins):
+       a cloud with sync arrows (NAS + sync + cloud), and the amber NAS light. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#818cf8"/>
@@ -12,10 +13,19 @@
   </defs>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
-  <rect x="262" y="300" width="500" height="160" rx="44" fill="#fff"/>
-  <rect x="262" y="564" width="500" height="160" rx="44" fill="#fff" fill-opacity=".62"/>
-  <circle cx="660" cy="380" r="34" fill="#fbbf24"/>
-  <circle cx="660" cy="644" r="34" fill="#fbbf24"/>
-  <rect x="322" y="366" width="200" height="28" rx="14" fill="#6366f1" fill-opacity=".35"/>
-  <rect x="322" y="630" width="200" height="28" rx="14" fill="#6366f1" fill-opacity=".35"/>
+  <g fill="#fff">
+    <circle cx="375" cy="545" r="115"/>
+    <circle cx="525" cy="470" r="165"/>
+    <circle cx="660" cy="560" r="105"/>
+    <rect x="285" y="545" width="470" height="175" rx="87"/>
+  </g>
+  <g fill="none" stroke="#4f46e5" stroke-width="40" stroke-linecap="round">
+    <path d="M418 541 A100 100 0 0 1 606 541"/>
+    <path d="M606 609 A100 100 0 0 1 418 609"/>
+  </g>
+  <g fill="#4f46e5">
+    <polygon points="622,584 640,521 572,540"/>
+    <polygon points="402,566 384,629 452,610"/>
+  </g>
+  <circle cx="700" cy="650" r="24" fill="#fbbf24"/>
 </svg>

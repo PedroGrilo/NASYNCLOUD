@@ -1,5 +1,5 @@
-//! The long-running part of nasdrive: owns the settings, the mount and the
-//! web interface. `nasdrive mount` runs it headless; `nasdrive ui` runs it and
+//! The long-running part of nasyncloud: owns the settings, the mount and the
+//! web interface. `nasyncloud mount` runs it headless; `nasyncloud ui` runs it and
 //! opens the browser.
 
 use std::path::{Path, PathBuf};
@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
-use nasdrive::config::{Config, DEFAULT_UI_PORT};
-use nasdrive::remote::{Remote, RemoteError};
-use nasdrive::webdav::WebDav;
+use nasyncloud::config::{Config, DEFAULT_UI_PORT};
+use nasyncloud::remote::{Remote, RemoteError};
+use nasyncloud::webdav::WebDav;
 use serde::Serialize;
 use tokio::sync::Notify;
 
@@ -21,11 +21,11 @@ pub use crate::win::Mounted;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// `nasdrive mount`: no browser, exits if the mount goes away.
+    /// `nasyncloud mount`: no browser, exits if the mount goes away.
     Headless,
-    /// `nasdrive ui`: opens the browser and keeps running for it.
+    /// `nasyncloud ui`: opens the browser and keeps running for it.
     App,
-    /// `nasdrive serve`: like `App`, without opening the browser. Started by
+    /// `nasyncloud serve`: like `App`, without opening the browser. Started by
     /// the desktop app, which shows the interface in its own windows.
     Background,
 }
@@ -211,9 +211,9 @@ impl Service {
             if !ours {
                 return; // stopped on purpose
             }
-            log::warn!("the mount was removed from outside nasdrive");
+            log::warn!("the mount was removed from outside nasyncloud");
             me.stop_mount().await;
-            me.set_error(Some("A pasta foi desmontada fora do nasdrive.".into()));
+            me.set_error(Some("A pasta foi desmontada fora do nasyncloud.".into()));
             if me.exit_on_unmount {
                 me.quit.notify_one();
             }
@@ -327,7 +327,7 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
         let port = svc.config().map_or(DEFAULT_UI_PORT, |c| c.ui_port);
         let ui = match crate::ui::serve(svc.clone(), port).await {
             Ok(ui) => {
-                log::info!("interface on http://127.0.0.1:{} (open it with `nasdrive ui`)", ui.port);
+                log::info!("interface on http://127.0.0.1:{} (open it with `nasyncloud ui`)", ui.port);
                 Some(ui)
             }
             Err(e) if mode != Mode::Headless => return Err(e),
@@ -345,8 +345,8 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
         }
         if let (Mode::App, Some(ui)) = (mode, &ui) {
             match crate::ui::open_path(&ui.url()) {
-                Ok(()) => println!("nasdrive is running and the interface opened in your browser. Ctrl+C here stops it."),
-                Err(_) => println!("Open {} in your browser. Ctrl+C here stops nasdrive.", ui.url()),
+                Ok(()) => println!("nasyncloud is running and the interface opened in your browser. Ctrl+C here stops it."),
+                Err(_) => println!("Open {} in your browser. Ctrl+C here stops nasyncloud.", ui.url()),
             }
         }
         wait_for_exit(&svc).await;

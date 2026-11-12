@@ -1,29 +1,29 @@
-nasdrive: a tua NAS como uma pasta, com ficheiros a pedido.
+NASYNCLOUD: a tua NAS como uma pasta, com ficheiros a pedido.
 
 ANTES DE ABRIR
 
 1. Instala o macFUSE 5.5 ou mais recente: https://macfuse.github.io
    Quando o macOS pedir, autoriza a extensão de sistema (Definições do Sistema
    → Privacidade e segurança) e reinicia o Mac.
-2. Arrasta o nasdrive para a pasta Aplicações.
+2. Arrasta o NASYNCLOUD para a pasta Aplicações.
 
 PRIMEIRA VEZ
 
 A app não está assinada pela Apple, por isso na primeira vez o macOS
 recusa-se a abri-la. Vai a Definições do Sistema → Privacidade e segurança,
-desce até ao aviso sobre o nasdrive e carrega em «Abrir mesmo assim».
+desce até ao aviso sobre o NASYNCLOUD e carrega em «Abrir mesmo assim».
 
 USAR
 
-O nasdrive vive na barra de menus (canto superior direito), como o
+O NASYNCLOUD vive na barra de menus (canto superior direito), como o
 OneDrive. Clicar no ícone abre um painel com o estado e com o que foi
 enviado e descarregado. Na primeira vez abre logo as Definições: endereço
 WebDAV (http://IP_DA_NAS:5005/NomeDaPasta), utilizador, password e a pasta
 onde a NAS deve aparecer. «Testar ligação» e depois «Guardar e ligar».
 
 No painel: o ícone de pasta abre a NAS no Finder; o da roda dentada tem
-«Abrir o nasdrive» (a janela completa), «Definições», «Pausar» e «Sair».
+«Abrir o NASYNCLOUD» (a janela completa), «Definições», «Pausar» e «Sair».
 Abrir a app outra vez (Finder, Spotlight) também mostra o painel.
 
-Registo: ~/Library/Logs/nasdrive.log
+Registo: ~/Library/Logs/nasyncloud.log
 Mais informação: README.md do projeto.

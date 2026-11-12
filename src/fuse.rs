@@ -17,7 +17,7 @@ use fuser::{
 };
 #[cfg(not(target_os = "macos"))]
 use fuser::{MountOption, SessionUnmounter};
-use nasdrive::vfs::{Attr, Kind, Vfs, VfsError, XATTR_EVICT, XATTR_INFO, XATTR_PIN, XATTR_REFRESH, XATTR_STATUS};
+use nasyncloud::vfs::{Attr, Kind, Vfs, VfsError, XATTR_EVICT, XATTR_INFO, XATTR_PIN, XATTR_REFRESH, XATTR_STATUS};
 use tokio::runtime::Handle;
 
 /// How long the kernel may cache names and attributes.
@@ -327,7 +327,7 @@ impl Filesystem for NasFs {
         });
     }
 
-    // The `nasdrive` command line talks to the mount through extended
+    // The `nasyncloud` command line talks to the mount through extended
     // attributes: no socket, and it works on whatever path the user points at.
 
     fn getxattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
@@ -411,8 +411,8 @@ pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) ->
         let _ = volume_name;
         let mut config = fuser::Config::default();
         config.mount_options = vec![
-            MountOption::FSName("nasdrive".into()),
-            MountOption::Subtype("nasdrive".into()),
+            MountOption::FSName("nasyncloud".into()),
+            MountOption::Subtype("nasyncloud".into()),
             MountOption::NoAtime,
             MountOption::NoSuid,
             MountOption::NoDev,
@@ -426,11 +426,11 @@ pub fn mount(vfs: Arc<Vfs>, rt: Handle, mountpoint: &Path, volume_name: &str) ->
     #[cfg(target_os = "macos")]
     let (session, unmounter) = {
         // No `._*` / `.DS_Store` litter and no Finder metadata on the NAS.
-        let mut opts: Vec<String> = ["fsname=nasdrive", "noatime", "nosuid", "nodev", "default_permissions", "noappledouble", "noapplexattr"].map(String::from).to_vec();
+        let mut opts: Vec<String> = ["fsname=nasyncloud", "noatime", "nosuid", "nodev", "default_permissions", "noappledouble", "noapplexattr"].map(String::from).to_vec();
         opts.push(format!("volname={volume_name}"));
         // Escape hatch to try macFUSE's FSKit backend (`fskit`); the kernel
         // backend is the default and the one that has been tested.
-        if let Ok(b) = std::env::var("NASDRIVE_MACFUSE_BACKEND") {
+        if let Ok(b) = std::env::var("NASYNCLOUD_MACFUSE_BACKEND") {
             opts.push(format!("backend={b}"));
         }
         let fd = macfuse::mount(mountpoint, &opts)?;
@@ -480,7 +480,7 @@ mod macfuse {
 
     pub fn mount(mountpoint: &Path, options: &[String]) -> io::Result<OwnedFd> {
         let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
-        let mut strings = vec![CString::new("nasdrive")?];
+        let mut strings = vec![CString::new("nasyncloud")?];
         for opt in options {
             strings.push(CString::new("-o")?);
             strings.push(CString::new(opt.as_str())?);

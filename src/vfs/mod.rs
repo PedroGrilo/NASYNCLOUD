@@ -31,12 +31,12 @@ use crate::remote::{self, Quota, Remote, RemoteError, Version};
 use crate::store::{Record, Store};
 use transfer::{Dl, UploadHandle};
 
-/// Extended attributes through which the `nasdrive` command talks to a running mount.
-pub const XATTR_STATUS: &str = "user.nasdrive.status";
-pub const XATTR_INFO: &str = "user.nasdrive.info";
-pub const XATTR_PIN: &str = "user.nasdrive.pin";
-pub const XATTR_EVICT: &str = "user.nasdrive.evict";
-pub const XATTR_REFRESH: &str = "user.nasdrive.refresh";
+/// Extended attributes through which the `nasyncloud` command talks to a running mount.
+pub const XATTR_STATUS: &str = "user.nasyncloud.status";
+pub const XATTR_INFO: &str = "user.nasyncloud.info";
+pub const XATTR_PIN: &str = "user.nasyncloud.pin";
+pub const XATTR_EVICT: &str = "user.nasyncloud.evict";
+pub const XATTR_REFRESH: &str = "user.nasyncloud.refresh";
 
 pub type NodeId = u64;
 pub const ROOT: NodeId = 1;

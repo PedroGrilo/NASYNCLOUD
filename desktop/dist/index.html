@@ -2,7 +2,7 @@
 <html lang="pt-PT">
 <head>
 <meta charset="utf-8">
-<title>nasdrive</title>
+<title>NASYNCLOUD</title>
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box;margin:0}
@@ -10,9 +10,8 @@ html,body{height:100%}
 body{font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#eceefe;background:transparent;overflow:hidden;-webkit-user-select:none;user-select:none}
 .panel{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:28px 30px;text-align:center;
   background:rgba(14,16,32,.95);border:1px solid rgba(255,255,255,.16);border-radius:14px}
-.logo{width:52px;height:52px;border-radius:15px;background:linear-gradient(#818cf8,#4f46e5);display:grid;place-items:center;margin-bottom:4px}
-.logo i{display:block;width:26px;height:7px;border-radius:3px;background:#fff;margin:2px 0}
-.logo i+i{opacity:.62}
+.logo{width:52px;height:52px;flex:none}
+.logo svg{width:100%;height:100%;display:block;filter:drop-shadow(0 6px 18px rgba(99,102,241,.45))}
 h1{font-size:15px}
 p{color:#a1a7cc}
 code{font:12px ui-monospace,Menlo,monospace;color:#c7cbef}
@@ -22,26 +21,26 @@ a,button{margin-top:6px;padding:8px 14px;border-radius:9px;border:0;background:#
 </head>
 <body>
 <div class="panel">
-  <div class="logo" aria-hidden="true"><i></i><i></i></div>
-  <h1 id="title">O nasdrive não arrancou</h1>
-  <p id="text">Não foi possível iniciar o serviço do nasdrive.</p>
+  <div class="logo"><svg viewBox="100 100 824 824" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#lg)"/><g fill="#fff"><circle cx="375" cy="545" r="115"/><circle cx="525" cy="470" r="165"/><circle cx="660" cy="560" r="105"/><rect x="285" y="545" width="470" height="175" rx="87"/></g><g fill="none" stroke="#4f46e5" stroke-width="40" stroke-linecap="round"><path d="M418 541A100 100 0 0 1 606 541"/><path d="M606 609A100 100 0 0 1 418 609"/></g><g fill="#4f46e5"><polygon points="622,584 640,521 572,540"/><polygon points="402,566 384,629 452,610"/></g><circle cx="700" cy="650" r="24" fill="#fbbf24"/></svg></div>
+  <h1 id="title">O NASYNCLOUD não arrancou</h1>
+  <p id="text">Não foi possível iniciar o serviço do NASYNCLOUD.</p>
   <a id="go" href="/app/retry">Tentar de novo</a>
   <button class="ghost" type="button" id="quit">Sair</button>
 </div>
 <script>
-// The desktop app opens this page as index.html#<reason>[&log=<path>] and
+// The desktop app sets window.__nasyncloud = { reason, log } before this runs, and
 // intercepts the /app/... links (retry, quit, open a web page).
-const p = new URLSearchParams(location.hash.slice(1));
-const log = p.get('log');
-if (p.has('macfuse')) {
+const info = window.__nasyncloud || {};
+const log = info.log;
+if (info.reason === 'macfuse') {
   document.getElementById('title').textContent = 'Falta o macFUSE';
-  document.getElementById('text').textContent = 'O nasdrive precisa do macFUSE 5.5 ou mais recente. Instala-o, autoriza a extensão de sistema quando o macOS pedir, reinicia o Mac e volta a abrir o nasdrive.';
+  document.getElementById('text').textContent = 'O NASYNCLOUD precisa do macFUSE 5.5 ou mais recente. Instala-o, autoriza a extensão de sistema quando o macOS pedir, reinicia o Mac e volta a abrir o NASYNCLOUD.';
   const go = document.getElementById('go');
   go.textContent = 'Abrir o site do macFUSE';
   go.href = '/app/web?url=' + encodeURIComponent('https://macfuse.github.io/');
 } else if (log) {
   const t = document.getElementById('text');
-  t.textContent = 'Não foi possível iniciar o serviço do nasdrive. O registo está em ';
+  t.textContent = 'Não foi possível iniciar o serviço do NASYNCLOUD. O registo está em ';
   t.append(Object.assign(document.createElement('code'), { textContent: log }), '.');
 }
 document.getElementById('quit').onclick = () => { location.href = '/app/quit'; };

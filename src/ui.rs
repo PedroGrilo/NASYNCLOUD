@@ -20,7 +20,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use nasdrive::config::Config;
+use nasyncloud::config::Config;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -30,7 +30,7 @@ use crate::service::{Mode, Service};
 const PAGE: &str = include_str!("ui/index.html");
 /// The compact panel the desktop app shows from the tray / menu bar.
 const PANEL: &str = include_str!("ui/panel.html");
-const TOKEN_HEADER: &str = "x-nasdrive-token";
+const TOKEN_HEADER: &str = "x-nasyncloud-token";
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 #[derive(Serialize, Deserialize)]
@@ -118,12 +118,12 @@ pub async fn serve(svc: Arc<Service>, port: u16) -> Result<Ui> {
     Ok(Ui { port, token })
 }
 
-/// `nasdrive ui`: open the running instance, or start one.
+/// `nasyncloud ui`: open the running instance, or start one.
 pub fn open_or_run(cfg_path: &Path) -> Result<()> {
     if let Some(f) = read_ui_file(cfg_path) {
         if ping(f.port, &f.token) {
             let ui = Ui { port: f.port, token: f.token };
-            println!("nasdrive is already running; opening http://127.0.0.1:{}", ui.port);
+            println!("nasyncloud is already running; opening http://127.0.0.1:{}", ui.port);
             if open_path(&ui.url()).is_err() {
                 println!("Open {} in your browser.", ui.url());
             }

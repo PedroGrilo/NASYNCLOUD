@@ -1,6 +1,6 @@
-# nasdrive
+# NASYNCLOUD
 
-Ficheiros a pedido ("Files On-Demand") para uma NAS com WebDAV. Foi pensado para a UGREEN (UGOS), mas não tem nada específico dela. A NAS aparece como uma pasta normal: vês tudo o que lá está, mas só é descarregado o que abres.
+**A tua NAS como nuvem.** Ficheiros a pedido ("Files On-Demand") para uma NAS com WebDAV. Foi pensado para a UGREEN (UGOS), mas não tem nada específico dela. A NAS aparece como uma pasta normal: vês tudo o que lá está, mas só é descarregado o que abres.
 
 ![Estado](docs/screenshots/estado.png)
 
@@ -35,10 +35,10 @@ O endereço é `http://IP_DA_NAS:5005/NomeDaPasta` (o nome é sensível a maiús
 
 ### Pronto a usar
 
-Em [Releases](https://github.com/PedroGrilo/Files-on-Demand-UGOS/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
+Em [Releases](https://github.com/PedroGrilo/NASYNCLOUD/releases) há uma versão para macOS e outra para Windows. Cada uma é gerada pelo GitHub Actions a partir de uma tag `v*`, depois de passar nos testes.
 
-- **macOS** (Apple Silicon): `nasdrive-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o nasdrive para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Fica na barra de menus (ver «A app» abaixo). O registo está em `~/Library/Logs/nasdrive.log`.
-- **Windows**: `nasdrive-…-windows-x86_64.zip`, com o `nasdrive-desktop.exe` (a app, é este que se abre) e o `nasdrive.exe` (o serviço que ela arranca). Têm de ficar na mesma pasta. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
+- **macOS** (Apple Silicon): `NASYNCLOUD-…-macos-arm64.dmg`. Primeiro instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente, autoriza a extensão de sistema e reinicia. Depois abre o `.dmg` e arrasta o NASYNCLOUD para Aplicações. A app não está assinada pela Apple: na primeira vez, vai a Definições do Sistema → Privacidade e segurança → «Abrir mesmo assim». Fica na barra de menus (ver «A app» abaixo). O registo está em `~/Library/Logs/nasyncloud.log`.
+- **Windows**: `NASYNCLOUD-…-windows-x86_64.zip`, com o `nasyncloud-desktop.exe` (a app, é este que se abre) e o `nasyncloud.exe` (o serviço que ela arranca). Têm de ficar na mesma pasta. Ainda é experimental. O SmartScreen pode avisar: «Mais informações» → «Executar mesmo assim».
 - **Linux**: não há pacote; compila a partir do código (ver abaixo).
 
 ### Compilar
@@ -48,19 +48,19 @@ Precisas do Rust 1.90 ou mais recente (`rustup`).
 **Linux** (Debian/Ubuntu):
 ```sh
 sudo apt install fuse3 pkg-config libssl-dev
-cargo build --release      # binário em target/release/nasdrive
+cargo build --release      # binário em target/release/nasyncloud
 ```
 
-**macOS**: instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente e segue as instruções dele para permitir a extensão de sistema. O nasdrive usa o motor clássico (kext) do macFUSE, por isso a extensão tem de estar autorizada e é preciso reiniciar. Depois:
+**macOS**: instala o [macFUSE](https://macfuse.github.io/) 5.5 ou mais recente e segue as instruções dele para permitir a extensão de sistema. O NASYNCLOUD usa o motor clássico (kext) do macFUSE, por isso a extensão tem de estar autorizada e é preciso reiniciar. Depois:
 ```sh
 brew install pkg-config
 cargo build --release
-tools/package-macos.sh     # opcional: dist/nasdrive.app e o .dmg
+tools/package-macos.sh     # opcional: dist/NASYNCLOUD.app e o .dmg
 ```
 
 **Windows** (toolchain MSVC, Windows 10 1709 ou mais recente, pasta num disco NTFS):
 ```powershell
-cargo build --release      # target\release\nasdrive.exe
+cargo build --release      # target\release\nasyncloud.exe
 ```
 
 ## 3. Usar
@@ -72,86 +72,86 @@ cargo build --release      # target\release\nasdrive.exe
 - o estado («Tudo atualizado», «A enviar 3 ficheiros», «NAS inacessível», …);
 - o que está a ser transferido, com progresso, e o que foi enviado e descarregado há pouco. Clicar num ficheiro abre-o, e o ícone de pasta mostra onde está;
 - o espaço usado neste computador;
-- a roda dentada, com «Abrir o nasdrive» (a interface completa numa janela), «Definições», «Pausar sincronização» e «Sair».
+- a roda dentada, com «Abrir o NASYNCLOUD» (a interface completa numa janela), «Definições», «Pausar sincronização» e «Sair».
 
-Na primeira vez abre logo as Definições. A app arranca sozinha o serviço `nasdrive serve` que vem com ela, e o «Sair» espera pelos envios pendentes antes de fechar. Para compilar a app: `cargo build -p nasdrive-desktop` (no macOS, `tools/package-macos.sh` gera o `.app` e o `.dmg`).
+Na primeira vez abre logo as Definições. A app arranca sozinha o serviço `nasyncloud serve` que vem com ela, e o «Sair» espera pelos envios pendentes antes de fechar. Para compilar a app: `cargo build -p nasyncloud-desktop` (no macOS, `tools/package-macos.sh` gera o `.app` e o `.dmg`).
 
 ### Linha de comandos e browser
 
 ```sh
-nasdrive        # o mesmo que: nasdrive ui
+nasyncloud        # o mesmo que: nasyncloud ui
 ```
 
-Abre a interface no browser e arranca o nasdrive, se ainda não estiver a correr. Na primeira vez vai direta às **Definições**: endereço WebDAV, utilizador, password e a pasta local onde a NAS deve aparecer. **Testar ligação** confirma tudo antes de guardar e **Guardar e ligar** monta a NAS. Se usares HTTPS com o certificado que vem com a UGOS, o teste avisa que não o consegue verificar e oferece-se para confiar nele.
+Abre a interface no browser e arranca o NASYNCLOUD, se ainda não estiver a correr. Na primeira vez vai direta às **Definições**: endereço WebDAV, utilizador, password e a pasta local onde a NAS deve aparecer. **Testar ligação** confirma tudo antes de guardar e **Guardar e ligar** monta a NAS. Se usares HTTPS com o certificado que vem com a UGOS, o teste avisa que não o consegue verificar e oferece-se para confiar nele.
 
 A interface tem quatro secções:
 
-- **Estado**: ligação, espaço usado, o que falta enviar, problemas e atividade recente, com botões para abrir a pasta e para parar/iniciar. O botão «Sair», em baixo na barra lateral, desmonta a pasta e encerra o nasdrive, mas só depois de terminar os envios pendentes.
+- **Estado**: ligação, espaço usado, o que falta enviar, problemas e atividade recente, com botões para abrir a pasta e para parar/iniciar. O botão «Sair», em baixo na barra lateral, desmonta a pasta e encerra o NASYNCLOUD, mas só depois de terminar os envios pendentes.
 - **Ficheiros**: navegas na NAS e vês o estado de cada ficheiro (só na NAS, parcialmente aqui, neste computador, por enviar). Manter offline, libertar espaço e abrir, por ficheiro ou por pasta.
-- **Atividade**: o registo do que o nasdrive fez.
+- **Atividade**: o registo do que o NASYNCLOUD fez.
 - **Definições**: a ligação e as opções avançadas.
 
 ![Ficheiros](docs/screenshots/ficheiros.png)
 
-O nasdrive continua a correr enquanto o terminal (ou o serviço) estiver aberto; fechar o separador do browser não o para. Voltar a correr `nasdrive` só reabre a interface. No Windows, um duplo clique no `nasdrive.exe` faz o mesmo; a janela de consola que aparece é o próprio nasdrive e fechá-la para-o.
+O NASYNCLOUD continua a correr enquanto o terminal (ou o serviço) estiver aberto; fechar o separador do browser não o para. Voltar a correr `nasyncloud` só reabre a interface. No Windows, um duplo clique no `nasyncloud.exe` faz o mesmo; a janela de consola que aparece é o próprio NASYNCLOUD e fechá-la para-o.
 
-A password fica no cofre do sistema (Gestor de Credenciais no Windows, Porta-chaves no macOS, Secret Service no Linux). Se não houver cofre, a interface pergunta se a pode guardar no ficheiro de definições. Também podes usar a variável `NASDRIVE_PASSWORD`.
+A password fica no cofre do sistema (Gestor de Credenciais no Windows, Porta-chaves no macOS, Secret Service no Linux). Se não houver cofre, a interface pergunta se a pode guardar no ficheiro de definições. Também podes usar a variável `NASYNCLOUD_PASSWORD`.
 
 ### Sem browser
 
 ```sh
-nasdrive setup     # as mesmas perguntas, no terminal
-nasdrive mount     # monta e sincroniza até Ctrl+C; a interface fica disponível
+nasyncloud setup     # as mesmas perguntas, no terminal
+nasyncloud mount     # monta e sincroniza até Ctrl+C; a interface fica disponível
 ```
 
-Com o `mount` a correr, `nasdrive ui` abre a interface a qualquer momento.
+Com o `mount` a correr, `nasyncloud ui` abre a interface a qualquer momento.
 
 ### Linux e macOS na linha de comandos
 
 A pasta comporta-se como qualquer outra (`cp`, `mv`, editores, `rsync`...). Para gerir o que fica local sem a interface:
 
 ```sh
-nasdrive status                 # estado geral: ligação, cache, uploads pendentes
-nasdrive ls ~/NAS/Fotos         # estado de cada entrada
-nasdrive pin ~/NAS/Documentos   # manter offline
-nasdrive unpin ~/NAS/Documentos
-nasdrive free ~/NAS/Videos      # libertar espaço já
-nasdrive refresh ~/NAS/Fotos    # reler da NAS agora
-nasdrive unmount                # se uma sessão anterior ficou pendurada
+nasyncloud status                 # estado geral: ligação, cache, uploads pendentes
+nasyncloud ls ~/NAS/Fotos         # estado de cada entrada
+nasyncloud pin ~/NAS/Documentos   # manter offline
+nasyncloud unpin ~/NAS/Documentos
+nasyncloud free ~/NAS/Videos      # libertar espaço já
+nasyncloud refresh ~/NAS/Fotos    # reler da NAS agora
+nasyncloud unmount                # se uma sessão anterior ficou pendurada
 ```
 
-No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o macFUSE não deixa mudar isso): usa `nasdrive ls` ou `nasdrive status`.
+No Linux, `du` mostra o espaço que cada coisa ocupa mesmo no disco; `ls -l` mostra o tamanho real na NAS. No macOS, o `du` mostra sempre o tamanho todo (o macFUSE não deixa mudar isso): usa `nasyncloud ls` ou `nasyncloud status`.
 
 ### Windows
 
-Para além da interface, tudo funciona no Explorador: a pasta aparece no painel lateral com os ícones de nuvem (só online) e visto verde (no disco). Clique direito → **Manter sempre neste dispositivo** ou **Libertar espaço**. O Sensor de Armazenamento também pode libertar espaço sozinho. Para remover o registo da pasta no Windows (os ficheiros na NAS não são tocados): `nasdrive unregister`.
+Para além da interface, tudo funciona no Explorador: a pasta aparece no painel lateral com os ícones de nuvem (só online) e visto verde (no disco). Clique direito → **Manter sempre neste dispositivo** ou **Libertar espaço**. O Sensor de Armazenamento também pode libertar espaço sozinho. Para remover o registo da pasta no Windows (os ficheiros na NAS não são tocados): `nasyncloud unregister`.
 
 ## Arrancar automaticamente
 
-Corre `nasdrive mount` no arranque; a interface abre-se depois com `nasdrive ui`.
+Corre `nasyncloud mount` no arranque; a interface abre-se depois com `nasyncloud ui`.
 
-**Linux (systemd)**: `~/.config/systemd/user/nasdrive.service`
+**Linux (systemd)**: `~/.config/systemd/user/nasyncloud.service`
 ```ini
 [Unit]
-Description=nasdrive
+Description=nasyncloud
 After=network-online.target
 
 [Service]
-ExecStart=%h/.cargo/bin/nasdrive mount
+ExecStart=%h/.cargo/bin/nasyncloud mount
 Restart=on-failure
 
 [Install]
 WantedBy=default.target
 ```
-e depois `systemctl --user enable --now nasdrive`.
+e depois `systemctl --user enable --now nasyncloud`.
 
-**Windows**: no Agendador de Tarefas, uma tarefa "Ao iniciar sessão" que corre `nasdrive.exe mount`.
+**Windows**: no Agendador de Tarefas, uma tarefa "Ao iniciar sessão" que corre `nasyncloud.exe mount`.
 
-**macOS**: um LaunchAgent em `~/Library/LaunchAgents` com `ProgramArguments` = `nasdrive mount` e `KeepAlive` ativo.
+**macOS**: um LaunchAgent em `~/Library/LaunchAgents` com `ProgramArguments` = `nasyncloud mount` e `KeepAlive` ativo.
 
 ## Configuração
 
-A interface mostra onde está o ficheiro (no Linux, `~/.config/nasdrive/config.toml`). Também podes usar `--config caminho`. Opções avançadas (todas editáveis na interface):
+A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config.toml`). Também podes usar `--config caminho`. Opções avançadas (todas editáveis na interface):
 
 | Chave | Omissão | O que faz |
 |---|---|---|
@@ -171,7 +171,7 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasdrive/config.t
 ## Segurança da interface
 
 - Só escuta em `127.0.0.1`; não é acessível de outros computadores.
-- A API exige um token aleatório de 256 bits, guardado em `ui.json` ao lado das definições (só a tua conta o lê). `nasdrive ui` abre o browser já com ele.
+- A API exige um token aleatório de 256 bits, guardado em `ui.json` ao lado das definições (só a tua conta o lê). `nasyncloud ui` abre o browser já com ele.
 - Pedidos com outro `Host` são recusados (proteção contra DNS rebinding) e a página tem uma Content-Security-Policy restritiva.
 - Quem tem acesso à tua conta no computador consegue usar a interface, tal como consegue abrir a pasta da NAS.
 
@@ -179,10 +179,10 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasdrive/config.t
 
 - **Linux/macOS**: apagar ou renomear algo que já está na NAS precisa da NAS acessível (dá "Host is down" offline). Criar e editar funciona offline. Pastas nunca abertas não se podem ver offline.
 - **Windows**: as alterações feitas na NAS por outros dispositivos só aparecem na sondagem seguinte (`poll_interval_secs`, mínimo 15 s). Nomes que o Windows não aceita (`:`, `?`, `CON`...) são ignorados, com aviso.
-- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada). O `du` não reflete o que está no disco (ver acima). O `cp` avisa «could not copy extended attributes» quando o ficheiro tem atributos `com.apple.*`: o ficheiro é copiado inteiro, só esses atributos é que não vão para a NAS. O motor FSKit do macFUSE ainda não funciona com o nasdrive.
+- **macOS**: não há ícones de estado no Finder (isso exigiria uma extensão de sistema assinada). O `du` não reflete o que está no disco (ver acima). O `cp` avisa «could not copy extended attributes» quando o ficheiro tem atributos `com.apple.*`: o ficheiro é copiado inteiro, só esses atributos é que não vão para a NAS. O motor FSKit do macFUSE ainda não funciona com o NASYNCLOUD.
 - Permissões (`chmod`/`chown`), links simbólicos e atributos estendidos não são guardados na NAS.
 - `.DS_Store`, `Thumbs.db`, `desktop.ini`, `~$*`, `*.tmp` e afins ficam só no computador.
-- Os uploads deixam temporariamente ficheiros `.*.nasdrive-part` na NAS; restos com mais de um dia são apagados sozinhos.
+- Os uploads deixam temporariamente ficheiros `.*.nasyncloud-part` na NAS; restos com mais de um dia são apagados sozinhos.
 - As mensagens da secção Atividade (e da linha de comandos) estão em inglês.
 
 ## Para quem desenvolve

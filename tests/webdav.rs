@@ -4,8 +4,8 @@ mod common;
 
 use common::{pattern, TestServer, PASS, USER};
 use futures_util::StreamExt;
-use nasdrive::remote::{Remote, RemoteError};
-use nasdrive::webdav::WebDav;
+use nasyncloud::remote::{Remote, RemoteError};
+use nasyncloud::webdav::WebDav;
 
 fn client(url: &str) -> WebDav {
     WebDav::new(url, USER, PASS, false).unwrap()

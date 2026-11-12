@@ -1,6 +1,6 @@
-//! nasdrive in the tray (Windows) / menu bar (macOS), OneDrive-style.
+//! nasyncloud in the tray (Windows) / menu bar (macOS), OneDrive-style.
 //!
-//! A thin shell: it runs the `nasdrive` binary next to it (`nasdrive serve`),
+//! A thin shell: it runs the `nasyncloud` binary next to it (`nasyncloud serve`),
 //! and shows the pages that one serves on 127.0.0.1: the compact panel
 //! (`/panel`) next to the tray icon, and the full interface in a window.
 //! Pages ask the shell for things by navigating to `/app/<action>`, which
@@ -24,9 +24,9 @@ use tauri::{AppHandle, Manager, PhysicalPosition, Rect, RunEvent, Url, WebviewUr
 const PANEL_W: f64 = 360.0;
 const PANEL_H: f64 = 560.0;
 
-// ---------------------------------------------------------------- the nasdrive service
+// ---------------------------------------------------------------- the nasyncloud service
 
-/// What `nasdrive serve` writes next to its settings: where its interface is.
+/// What `nasyncloud serve` writes next to its settings: where its interface is.
 #[derive(Deserialize, Clone)]
 struct UiFile {
     port: u16,
@@ -34,8 +34,8 @@ struct UiFile {
 }
 
 fn project_dirs() -> Option<directories::ProjectDirs> {
-    // Same as nasdrive's own config.rs.
-    directories::ProjectDirs::from("", "", "nasdrive")
+    // Same as nasyncloud's own config.rs.
+    directories::ProjectDirs::from("", "", "nasyncloud")
 }
 
 fn ui_file() -> Option<UiFile> {
@@ -46,9 +46,9 @@ fn ui_file() -> Option<UiFile> {
 fn log_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     if let Some(home) = directories::BaseDirs::new() {
-        return home.home_dir().join("Library/Logs/nasdrive.log");
+        return home.home_dir().join("Library/Logs/nasyncloud.log");
     }
-    project_dirs().map_or_else(std::env::temp_dir, |d| d.data_local_dir().to_path_buf()).join("nasdrive.log")
+    project_dirs().map_or_else(std::env::temp_dir, |d| d.data_local_dir().to_path_buf()).join("nasyncloud.log")
 }
 
 /// A tiny HTTP/1.1 request to the local service; returns the status code.
@@ -58,7 +58,7 @@ fn call(ui: &UiFile, method: &str, path: &str) -> Option<u16> {
     s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
     let body = if method == "POST" { "{}" } else { "" };
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-nasdrive-token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-nasyncloud-token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         ui.port,
         ui.token,
         body.len()
@@ -73,10 +73,10 @@ fn alive() -> Option<UiFile> {
     ui_file().filter(|ui| call(ui, "GET", "/api/ping") == Some(200))
 }
 
-/// The `nasdrive` binary shipped next to this one.
+/// The `nasyncloud` binary shipped next to this one.
 fn service_binary() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
-    exe.with_file_name(if cfg!(windows) { "nasdrive.exe" } else { "nasdrive" })
+    exe.with_file_name(if cfg!(windows) { "nasyncloud.exe" } else { "nasyncloud" })
 }
 
 enum StartError {
@@ -84,13 +84,13 @@ enum StartError {
     Failed(String),
 }
 
-/// Makes sure `nasdrive serve` is running (ours or one started before) and
+/// Makes sure `nasyncloud serve` is running (ours or one started before) and
 /// answering; returns where its interface is.
 fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
     if let Some(ui) = alive() {
         return Ok(ui);
     }
-    // nasdrive links against macFUSE's libfuse: without it, it cannot even start.
+    // nasyncloud links against macFUSE's libfuse: without it, it cannot even start.
     if cfg!(target_os = "macos") && !std::path::Path::new("/usr/local/lib/libfuse.2.dylib").exists() {
         return Err(StartError::MacFuseMissing);
     }
@@ -115,11 +115,11 @@ fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
             return Ok(ui);
         }
         if let Ok(Some(status)) = proc.try_wait() {
-            return Err(StartError::Failed(format!("nasdrive ended ({status})")));
+            return Err(StartError::Failed(format!("nasyncloud ended ({status})")));
         }
         if Instant::now() > deadline {
             let _ = proc.kill();
-            return Err(StartError::Failed("nasdrive did not answer".into()));
+            return Err(StartError::Failed("nasyncloud did not answer".into()));
         }
         std::thread::sleep(Duration::from_millis(150));
     }
@@ -128,7 +128,7 @@ fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
 // ---------------------------------------------------------------- shell state
 
 struct Shell {
-    /// The `nasdrive serve` we started, if we did.
+    /// The `nasyncloud serve` we started, if we did.
     child: Mutex<Option<Child>>,
     /// Serializes starts, so two clicks do not launch two services.
     starting: Mutex<()>,
@@ -154,11 +154,11 @@ fn panel_target(app: &AppHandle) -> (WebviewUrl, Option<String>) {
             *sh.ui.lock().unwrap() = Some(ui);
             (WebviewUrl::External(url.parse().expect("panel URL")), None)
         }
-        Err(StartError::MacFuseMissing) => (WebviewUrl::App("index.html".into()), Some(r#"window.__nasdrive = { reason: "macfuse" };"#.into())),
+        Err(StartError::MacFuseMissing) => (WebviewUrl::App("index.html".into()), Some(r#"window.__nasyncloud = { reason: "macfuse" };"#.into())),
         Err(StartError::Failed(msg)) => {
-            eprintln!("nasdrive: {msg}");
+            eprintln!("nasyncloud: {msg}");
             let info = serde_json::json!({ "reason": "failed", "log": log_path().display().to_string() });
-            (WebviewUrl::App("index.html".into()), Some(format!("window.__nasdrive = {info};")))
+            (WebviewUrl::App("index.html".into()), Some(format!("window.__nasyncloud = {info};")))
         }
     }
 }
@@ -171,7 +171,7 @@ fn build_panel(app: &AppHandle) -> Option<WebviewWindow> {
     let (url, init) = panel_target(app);
     let nav = app.clone();
     let mut b = WebviewWindowBuilder::new(app, "panel", url)
-        .title("nasdrive")
+        .title("NASYNCLOUD")
         .inner_size(PANEL_W, PANEL_H)
         .resizable(false)
         .maximizable(false)
@@ -189,7 +189,7 @@ fn build_panel(app: &AppHandle) -> Option<WebviewWindow> {
     let win = match b.build() {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("nasdrive: cannot create the panel: {e}");
+            eprintln!("nasyncloud: cannot create the panel: {e}");
             return None;
         }
     };
@@ -292,7 +292,7 @@ fn show_main(app: &AppHandle, view: &str) {
     let url = format!("http://127.0.0.1:{}/#t={}&view={view}", ui.port, ui.token);
     let nav = app.clone();
     let built = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse().expect("main URL")))
-        .title("nasdrive")
+        .title("NASYNCLOUD")
         .inner_size(1100.0, 760.0)
         .min_inner_size(420.0, 560.0)
         .center()
@@ -300,7 +300,7 @@ fn show_main(app: &AppHandle, view: &str) {
         .build();
     match built {
         Ok(w) => {
-            // While the window is open, show nasdrive in the Dock and app switcher.
+            // While the window is open, show nasyncloud in the Dock and app switcher.
             #[cfg(target_os = "macos")]
             {
                 let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
@@ -313,7 +313,7 @@ fn show_main(app: &AppHandle, view: &str) {
             }
             let _ = w.set_focus();
         }
-        Err(e) => eprintln!("nasdrive: cannot open the window: {e}"),
+        Err(e) => eprintln!("nasyncloud: cannot open the window: {e}"),
     }
 }
 
@@ -372,8 +372,8 @@ fn tray_icon() -> tauri::image::Image<'static> {
 #[cfg(target_os = "macos")]
 fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     use tauri::menu::Submenu;
-    let quit = MenuItem::with_id(app, "quit", "Sair do nasdrive", true, Some("CmdOrCtrl+Q"))?;
-    let main = Submenu::with_items(app, "nasdrive", true, &[&PredefinedMenuItem::hide(app, Some("Esconder"))?, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let quit = MenuItem::with_id(app, "quit", "Sair do NASYNCLOUD", true, Some("CmdOrCtrl+Q"))?;
+    let main = Submenu::with_items(app, "NASYNCLOUD", true, &[&PredefinedMenuItem::hide(app, Some("Esconder"))?, &PredefinedMenuItem::separator(app)?, &quit])?;
     let edit = Submenu::with_items(
         app,
         "Editar",
@@ -418,13 +418,13 @@ fn main() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            let open = MenuItem::with_id(app, "open", "Abrir o nasdrive", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Sair do nasdrive", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "Abrir o NASYNCLOUD", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Sair do NASYNCLOUD", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
             TrayIconBuilder::with_id("tray")
                 .icon(tray_icon())
                 .icon_as_template(cfg!(target_os = "macos"))
-                .tooltip("nasdrive")
+                .tooltip("NASYNCLOUD")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, e| {
@@ -451,9 +451,9 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("cannot start nasdrive");
+        .expect("cannot start nasyncloud");
     app.run(|app, event| match event {
-        // Closing windows does not quit: nasdrive stays in the tray.
+        // Closing windows does not quit: nasyncloud stays in the tray.
         RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
         // Opening the app again (Finder, Spotlight) shows the panel.
         #[cfg(target_os = "macos")]
