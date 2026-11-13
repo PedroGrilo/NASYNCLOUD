@@ -121,6 +121,81 @@ fn ensure_service(child: &Mutex<Option<Child>>) -> Result<UiFile, StartError> {
     }
 }
 
+// ---------------------------------------------------------------- start with the computer
+
+/// The app's own settings (the service's live in config.toml), next to them.
+#[derive(serde::Serialize, Deserialize, Default)]
+struct AppSettings {
+    /// Open at login. `None` until decided: on by default.
+    autostart: Option<bool>,
+}
+
+fn app_settings_path() -> Option<PathBuf> {
+    Some(project_dirs()?.config_dir().join("desktop.json"))
+}
+
+fn app_settings() -> AppSettings {
+    app_settings_path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn save_app_settings(s: &AppSettings) {
+    let Some(p) = app_settings_path() else { return };
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(&p, serde_json::to_vec_pretty(s).unwrap_or_default()) {
+        eprintln!("nasyncloud: {}: {e}", p.display());
+    }
+}
+
+/// Where the app runs from is a place it will still be at the next login: not
+/// the disk image, nor the random copy macOS runs apps from before they are moved.
+fn installed() -> bool {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let exe = exe.to_string_lossy();
+    !(cfg!(debug_assertions) || exe.starts_with("/Volumes/") || exe.contains("/AppTranslocation/"))
+}
+
+/// The login item: the app itself through SMAppService on macOS (listed under
+/// its own name in Login Items), the `Run` key of the registry on Windows.
+fn launcher() -> Option<auto_launch::AutoLaunch> {
+    let exe = std::env::current_exe().ok()?;
+    let mut b = auto_launch::AutoLaunchBuilder::new();
+    b.set_app_name("NASYNCLOUD").set_app_path(&exe.to_string_lossy());
+    #[cfg(target_os = "macos")]
+    b.set_macos_launch_mode(auto_launch::MacOSLaunchMode::SMAppService);
+    #[cfg(windows)]
+    b.set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
+    b.build().map_err(|e| eprintln!("nasyncloud: start at login: {e}")).ok()
+}
+
+/// Whether the app opens at login, as the system has it now (the person may
+/// also turn it off in the system settings).
+fn autostart_enabled() -> bool {
+    launcher().and_then(|l| l.is_enabled().ok()).unwrap_or(false)
+}
+
+fn set_autostart(on: bool) {
+    save_app_settings(&AppSettings { autostart: Some(on) });
+    let Some(l) = launcher() else { return };
+    let result = match (on, l.is_enabled().unwrap_or(false)) {
+        (true, false) if installed() => l.enable(),
+        (false, true) => l.disable(),
+        _ => Ok(()),
+    };
+    if let Err(e) = result {
+        eprintln!("nasyncloud: start at login: {e}");
+    }
+}
+
+/// The first time the installed app runs: open at login from now on. After
+/// that, only the person changes it (here or in the system settings).
+fn autostart_first_run() {
+    if app_settings().autostart.is_none() && installed() {
+        set_autostart(true);
+    }
+}
+
 // ---------------------------------------------------------------- shell state
 
 struct Shell {
@@ -269,6 +344,7 @@ fn on_navigation(app: &AppHandle, url: &Url) -> bool {
         "retry" | "restart" => restart(&app),
         "update" => tauri::async_runtime::block_on(install_update(&app)),
         "web" => open_web(query.get("url").map_or("", String::as_str)),
+        "autostart" => set_autostart(query.get("on").is_some_and(|v| v == "1")),
         _ => {}
     });
     false
@@ -389,13 +465,13 @@ fn show_main(app: &AppHandle, view: &str) {
     let ui = shell(app).ui.lock().unwrap().clone().or_else(alive);
     let Some(ui) = ui else { return show_panel(app) };
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.eval(format!("location.hash = '#/{view}'"));
+        let _ = w.eval(format!("location.hash = '#/{view}'; if (window.setAutostart) setAutostart({});", autostart_enabled()));
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         return;
     }
-    let url = format!("http://127.0.0.1:{}/#t={}&view={view}", ui.port, ui.token);
+    let url = format!("http://127.0.0.1:{}/#t={}&view={view}&shell=1&autostart={}", ui.port, ui.token, u8::from(autostart_enabled()));
     let nav = app.clone();
     let built = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse().expect("main URL")))
         .title("NASYNCLOUD")
@@ -572,6 +648,8 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            // Open at login unless the person said otherwise (on by default).
+            std::thread::spawn(autostart_first_run);
             // Look for a newer version a little after starting, then every 6 hours.
             let updates = app.handle().clone();
             std::thread::spawn(move || {

@@ -94,6 +94,10 @@ On Windows you can also do this from File Explorer: right-click → **Always kee
 
 **Leave things out.** In **Definições → Excluir da sincronização** (Settings → Exclude from sync) list what should stay on this computer only, for example `.git` and `node_modules` when you keep code projects on the NAS. Those never go to the NAS, and if the NAS already has them they no longer show up here (they stay untouched there). You can use plain names (matched anywhere, with everything inside), `*.log`, `build/` (folders only) or `/a/path/from/the/top`.
 
+**Sleep and lock.** Locking your computer or turning off the screen doesn't stop anything. While there are files waiting to upload, NASYNCLOUD keeps your computer from going to sleep on its own, and lets it sleep again once they're done. Closing the lid or choosing Sleep still puts it to sleep; the uploads pick up where they left off when it wakes. You can turn this off in **Definições** (Settings).
+
+**Starting with your computer.** NASYNCLOUD opens on its own when you sign in. To change that, use **Definições → Abrir o NASYNCLOUD ao iniciar sessão** (Open NASYNCLOUD at sign-in).
+
 **Quitting.** Use **Sair do NASYNCLOUD** (Quit NASYNCLOUD) in the gear menu. On a Mac it first finishes uploading anything still pending; on Windows, whatever is left is sent the next time NASYNCLOUD starts.
 
 ## Updates

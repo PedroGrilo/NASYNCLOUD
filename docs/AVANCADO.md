@@ -77,7 +77,9 @@ Para além da interface, tudo funciona no Explorador: a pasta aparece no painel 
 
 ## Arrancar automaticamente
 
-Corre `nasyncloud mount` no arranque; a interface abre-se depois com `nasyncloud ui`.
+A app (macOS e Windows) abre-se sozinha ao iniciar sessão, a partir da primeira vez que corre já instalada (no macOS, fora da imagem de disco). Desliga-se em **Definições → Abrir o NASYNCLOUD ao iniciar sessão**, ou nas definições do sistema (macOS: Definições do Sistema → Geral → Itens de início de sessão; Windows: Gestor de Tarefas → Aplicações de arranque). No macOS é um item de início de sessão da própria app (`SMAppService`); no Windows, a chave `Run` do registo do utilizador. A escolha fica em `desktop.json`, ao lado do `config.toml`.
+
+Sem a app, corre `nasyncloud mount` no arranque; a interface abre-se depois com `nasyncloud ui`.
 
 **Linux (systemd)**: `~/.config/systemd/user/nasyncloud.service`
 ```ini
@@ -116,6 +118,7 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config
 | `accept_invalid_certs` | `false` | Aceitar certificados HTTPS que não se conseguem verificar. |
 | `ui_port` | `8730` | Porta da interface (`http://127.0.0.1:8730`). |
 | `exclude` | `[]` | O que fica só neste computador, por exemplo `[".git", "node_modules", "*.log"]`. Ver abaixo. |
+| `prevent_sleep` | `true` | Enquanto há ficheiros por enviar e a NAS está acessível, o computador não suspende por inatividade (macOS: asserção `PreventUserIdleSystemSleep`, visível em `pmset -g assertions`; Windows: `PowerRequestSystemRequired`, visível em `powercfg /requests`). Bloquear o ecrã não interrompe nada; fechar a tampa ou suspender à mão suspende na mesma, e os envios continuam ao acordar. Envios parados há 30 minutos sem progresso deixam de segurar o computador. Linux: ainda nada. |
 
 ### Excluir da sincronização
 

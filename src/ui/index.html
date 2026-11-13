@@ -362,6 +362,8 @@ details.card[open]>summary{margin-bottom:16px}
           <label class="field"><span>Pasta onde a NAS aparece</span><input name="mountpoint" type="text" required spellcheck="false"><small id="mp-hint"></small></label>
           <label class="field only-unix"><span>Espaço máximo para ficheiros descarregados</span><input name="cache_max_size" type="text" placeholder="20G" spellcheck="false"><small>Por exemplo 500M, 20G ou 1T. O que mantiveres offline ou ainda estiver por enviar nunca é apagado.</small></label>
           <p class="muted small only-win">No Windows, o espaço é gerido pelo próprio sistema. Usa «Libertar espaço» quando quiseres.</p>
+          <label class="check"><input type="checkbox" name="prevent_sleep"><span>Não deixar o computador suspender sozinho enquanto há ficheiros por enviar (bloquear o ecrã não interrompe os envios; fechar a tampa ou suspender à mão sim, e continuam ao acordar)</span></label>
+          <label class="check" id="autostart-row" hidden><input type="checkbox" id="autostart"><span>Abrir o NASYNCLOUD ao iniciar sessão no computador</span></label>
         </div>
         <div class="card glass span2" id="excl-card">
           <div class="card-head" data-icon="local">Excluir da sincronização</div>
@@ -480,6 +482,11 @@ try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { /* storage di
     try { localStorage.setItem(TOKEN_KEY, token); } catch (_) { /* keep it for this tab only */ }
     // The desktop app may ask for a section: `#t=TOKEN&view=definicoes`.
     const v = location.hash.match(/[#&]view=([a-z]*)/);
+    // ... and says it is there (`shell=1`) and whether it starts with the computer.
+    const a = location.hash.match(/[#&]autostart=([01])/);
+    if (/[#&]shell=1/.test(location.hash)) {
+      try { sessionStorage.setItem('nasyncloud.shell', a ? a[1] : '0'); } catch (_) { /* no storage: no switch */ }
+    }
     history.replaceState(null, '', location.pathname + '#/' + (v ? v[1] : ''));
   }
 }
@@ -850,7 +857,7 @@ $('#log-filter').addEventListener('click', ev => {
 // ---------------------------------------------------------------- definicoes
 
 const NUMBERS = ['dir_ttl_secs', 'poll_interval_secs', 'upload_delay_secs', 'parallel_uploads', 'readahead_mb', 'ui_port'];
-const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, parallel_uploads_auto: true, readahead_mb: 8, atomic_upload: true, ui_port: 8730, exclude: [] };
+const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, parallel_uploads_auto: true, readahead_mb: 8, atomic_upload: true, ui_port: 8730, exclude: [], prevent_sleep: true };
 const EXCL_SUGGESTIONS = ['.git', 'node_modules', '.venv', '__pycache__', '.next', 'target/', 'dist/', '*.tmp', '*.log'];
 let excludes = [];
 
@@ -914,7 +921,25 @@ function readForm() {
   return c;
 }
 
-$('#cfg-form').addEventListener('input', () => { formDirty = true; });
+$('#cfg-form').addEventListener('input', ev => { if (ev.target.id !== 'autostart') formDirty = true; });
+
+// Starting with the computer belongs to the desktop app (not to the settings
+// file), so the switch only shows up inside it and talks to it directly.
+let shellAutostart = null;
+try { shellAutostart = sessionStorage.getItem('nasyncloud.shell'); } catch (_) { /* not in the app */ }
+function setAutostart(on) {
+  $('#autostart').checked = !!on;
+  try { sessionStorage.setItem('nasyncloud.shell', on ? '1' : '0'); } catch (_) { /* fine */ }
+}
+if (shellAutostart !== null) {
+  $('#autostart-row').hidden = false;
+  setAutostart(shellAutostart === '1');
+  $('#autostart').addEventListener('change', ev => {
+    setAutostart(ev.target.checked);
+    location.href = '/app/autostart?on=' + (ev.target.checked ? '1' : '0');
+    toast(ev.target.checked ? 'O NASYNCLOUD vai abrir ao iniciar sessão.' : 'O NASYNCLOUD já não abre ao iniciar sessão.', 'ok');
+  });
+}
 
 /// Automatic: the number comes from the file sizes, so the box is only for manual.
 function parallelMode() {

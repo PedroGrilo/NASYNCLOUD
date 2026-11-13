@@ -203,6 +203,30 @@ impl Service {
         }
     }
 
+    /// Keeps the computer awake (no idle sleep) while there is something to upload.
+    fn keep_awake_while_uploading(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut policy = crate::power::Policy::default();
+            let mut held: Option<crate::power::KeepAwake> = None;
+            loop {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let Some(svc) = me.upgrade() else { break };
+                let enabled = svc.config().is_some_and(|c| c.prevent_sleep);
+                let info = svc.current().map(|m| m.info()).unwrap_or_default();
+                let want = enabled && policy.wants_awake(info.online, info.pending_uploads, info.uploading);
+                if want && held.is_none() {
+                    held = crate::power::KeepAwake::new("NASYNCLOUD is uploading files to the NAS");
+                    if held.is_some() {
+                        log::info!("keeping the computer awake until the uploads finish");
+                    }
+                } else if !want && held.take().is_some() {
+                    log::info!("the computer may sleep again");
+                }
+            }
+        });
+    }
+
     /// Notices a mount that went away without us (unmounted from outside).
     fn watch(self: &Arc<Self>, m: Arc<Mounted>) {
         let me = self.clone();
@@ -341,6 +365,7 @@ pub fn run(cfg_path: &Path, mode: Mode) -> Result<()> {
         // After the interface is up: reading the keyring can wait for the person
         // to allow it (macOS asks again whenever the app's signature changes).
         svc.refresh_password_known().await;
+        svc.keep_awake_while_uploading();
         if svc.config().is_some() {
             if let Err(e) = svc.start_mount().await {
                 if mode == Mode::Headless {

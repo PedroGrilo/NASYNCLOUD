@@ -16,7 +16,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.3.1, 2026-11-13)
+## Estado atual (v1.4.0, 2026-11-13)
 
 | Parte | Estado |
 |---|---|
@@ -47,6 +47,7 @@ src/
   ui.rs             servidor HTTP local (hyper) + API JSON + abrir browser
   ui/index.html     a interface inteira (HTML+CSS+JS), embutida com include_str!
   ui/panel.html     o painel compacto da app (estado + transferências), servido em /panel
+  power.rs          impedir a suspensão por inatividade com envios pendentes (IOKit no macOS, PowerCreateRequest no Windows)
   activity.rs       registo das transferências recentes (junta as do mesmo ficheiro), API /api/transfers
   logging.rs        logger próprio: stderr + últimas 1000 linhas para a interface
   fuse.rs           adaptador FUSE (fuser 0.18)                                 [Linux]
@@ -137,6 +138,8 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **Envios em simultâneo**: `parallel_uploads_auto` (por omissão) dá a cada envio um peso de 1 por MiB (1–32) num orçamento de `MAX_UPLOADS` (64), por ordem: 64 pequenos ou 2 grandes. O motor do Windows envia um de cada vez e ignora isto.
 - **macOS, `nfsserve` no repositório** (`vendor/nfsserve`, por `[patch.crates-io]`): a 0.11.0 com a limpeza do `TransactionTracker` limitada a uma vez por segundo (antes, cada pedido varria todos os do último minuto, o que tornava as cópias de muitos ficheiros quadráticas). Ao atualizar o `nfsserve`, ver `vendor/nfsserve/NASYNCLOUD.md`. O `nfsserve` não implementa o COMMIT (responde `FILE_SYNC` a cada WRITE), por isso o `Vfs::fsync` nunca é chamado pelo NFS.
 - **macOS, desempenho**: medir sempre com `--release` (o build debug é 5 a 10 vezes mais lento por pedido NFS). Referência: `cp -Rp` do `react-app` (6 684 entradas, `node_modules` excluído) ~30 s; cada ficheiro custa ~20 pedidos NFS (o macOS junta `com.apple.provenance` a cada ficheiro novo, num `._*`). `nfsstat -c` conta os pedidos, mas inclui os de todos os mounts NFS (a app do Pedro faz ~100/s de fundo).
+- **Suspensão e arranque**: `service::keep_awake_while_uploading` vê o `info()` a cada 3 s e segura o computador acordado (só suspensão por inatividade) enquanto há envios e a NAS está acessível; `power::Policy` larga ao fim de 30 min sem progresso. Abrir ao iniciar sessão é da app (`desktop/`, crate `auto-launch`: SMAppService no macOS, `Run` no Windows), não do serviço: a escolha fica em `desktop.json`, a interface só mostra o interruptor quando aberta pela app (`#…&shell=1&autostart=0|1`) e muda-o por `/app/autostart?on=`. Builds debug e apps a correr de `/Volumes` ou do AppTranslocation nunca se registam.
+- **Diário do índice** (`store.rs`, `index.journal` ao lado do `index.redb`): o redb deita fora os commits sem fsync se o processo morrer, e um ficheiro novo (`Vfs::create`) só levava fsync até 5 s depois (um fsync por ficheiro tornaria as cópias grandes muito lentas). Por isso cada commit sem fsync também vai para o diário, escrito sem fsync (sobrevive à morte do processo, não a uma falta de luz) e com checksum. Cada commit tem um número de sequência (`seq` na tabela META) e o arranque só aplica as entradas que vêm a seguir ao estado gravado, parando na primeira cortada ou fora de ordem. Um commit com fsync esvazia o diário. Sem isto, um `kill -9` até 5 s depois de criar um ficheiro perdia-o.
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
 - **App macOS**: `LSUIElement` (sem Dock), por isso a única forma normal de sair é o botão «Sair» da interface (`/api/quit`). Como a assinatura é ad-hoc, o Porta-chaves pode voltar a pedir autorização para a password depois de cada atualização da app.
 

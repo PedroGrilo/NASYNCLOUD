@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0 — 2026-11-13
+
+- **O computador não adormece a meio dos envios.** Enquanto há ficheiros por enviar e a NAS está acessível, o NASYNCLOUD impede a suspensão por inatividade (macOS: asserção `PreventUserIdleSystemSleep`, que também afasta o App Nap; Windows: `PowerRequestSystemRequired`). Quando acabam, o computador volta a poder suspender. Bloquear o ecrã nunca interrompeu os envios; fechar a tampa ou suspender à mão continua a suspender, e os envios retomam ao acordar. Com a NAS inacessível, ou com envios parados há 30 minutos, não segura o computador. Nova opção `prevent_sleep` (ligada por omissão), em Definições → Neste computador.
+- **Ficheiros novos já não se perdem se o NASYNCLOUD morrer de repente.** O índice só era gravado com fsync a cada 5 s, e o que ficava pelo meio perdia-se se o processo morresse (um `kill -9`, um crash, o sistema a fechá-lo): um ficheiro criado nesses segundos desaparecia, sem nunca chegar à NAS. Agora essas alterações também vão para um diário ao lado do índice (`index.journal`), que o arranque seguinte relê. Não custa um fsync por ficheiro, por isso as cópias grandes não ficam mais lentas. Linux e macOS.
+- **A app abre-se ao iniciar sessão** (macOS e Windows), ligado por omissão a partir da primeira vez que corre instalada. Desliga-se em Definições → «Abrir o NASYNCLOUD ao iniciar sessão» (só aparece dentro da app) ou nas definições do sistema. macOS: item de início de sessão da própria app (`SMAppService`); Windows: chave `Run` do utilizador. Crate `auto-launch`.
+
 ## 1.3.1 — 2026-11-13
 
 - **macOS: copiar pastas grandes já não falha com «erro -36».** O serviço arrancava com o limite de 256 ficheiros abertos que o macOS dá às apps, e numa cópia grande (um `node_modules`, um `venv`) esgotava-o: cada ficheiro tocado ficava aberto mais 1 a 5 s, e cada envio usava ainda um socket. O Finder mostrava «não foi possível ler ou escrever alguns dados» e a Atividade mostrava «the NAS is unreachable … Too many open files». Agora o serviço sobe o limite ao arrancar (até 65 536, conforme o sistema deixar) e nunca guarda mais de 128 ficheiros abertos por pedido do NFS: os parados fecham-se logo, a começar pelos mais antigos. Também se aplica ao Linux (o limite).

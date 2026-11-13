@@ -65,6 +65,9 @@ pub struct Config {
     /// for the syntax), e.g. `[".git", "node_modules", "*.tmp"]`.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// Keep the computer from going to sleep on its own while uploads are pending.
+    #[serde(default = "default_true")]
+    pub prevent_sleep: bool,
 }
 
 fn default_cache_max() -> String {
@@ -111,6 +114,7 @@ impl Config {
             atomic_upload: true,
             ui_port: DEFAULT_UI_PORT,
             exclude: Vec::new(),
+            prevent_sleep: true,
         }
     }
 

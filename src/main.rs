@@ -14,6 +14,7 @@ mod fuse;
 mod logging;
 #[cfg(target_os = "macos")]
 mod nfs;
+mod power;
 mod service;
 mod ui;
 #[cfg(unix)]
