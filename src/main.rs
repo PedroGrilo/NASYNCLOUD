@@ -84,6 +84,33 @@ fn main() {
     }
 }
 
+/// Apps started by launchd (macOS) get a soft limit of 256 open files. A big
+/// copy keeps hundreds of cache files open at once (plus up to 64 uploads,
+/// each with a socket), and EMFILE turns into "error -36" in the Finder.
+/// Raise the soft limit as far as the system allows.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit/setrlimit only read and write the struct we pass.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } != 0 {
+        return;
+    }
+    let before = lim.rlim_cur;
+    // macOS refuses anything above kern.maxfilesperproc (often 10240 or more),
+    // so step down until one is accepted.
+    for want in [65536, 24576, 10240, 4096] {
+        let want = (want as libc::rlim_t).min(lim.rlim_max);
+        if want <= before {
+            break;
+        }
+        let new = libc::rlimit { rlim_cur: want, rlim_max: lim.rlim_max };
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new) } == 0 {
+            log::debug!("open files limit: {before} -> {want}");
+            return;
+        }
+    }
+}
+
 fn run(cli: Cli) -> Result<()> {
     let path = match cli.config {
         Some(p) => p,
@@ -95,6 +122,10 @@ fn run(cli: Cli) -> Result<()> {
         // Let `nasyncloud ls | head` end quietly instead of panicking on a closed pipe.
         // SAFETY: restoring the default disposition of a signal is always sound.
         unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+    }
+    #[cfg(unix)]
+    if matches!(command, Command::Mount | Command::Ui | Command::Serve) {
+        raise_fd_limit();
     }
     match command {
         Command::Ui => ui::open_or_run(&path),

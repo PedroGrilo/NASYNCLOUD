@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 — 2026-11-13
+
+- **macOS: copiar pastas grandes já não falha com «erro -36».** O serviço arrancava com o limite de 256 ficheiros abertos que o macOS dá às apps, e numa cópia grande (um `node_modules`, um `venv`) esgotava-o: cada ficheiro tocado ficava aberto mais 1 a 5 s, e cada envio usava ainda um socket. O Finder mostrava «não foi possível ler ou escrever alguns dados» e a Atividade mostrava «the NAS is unreachable … Too many open files». Agora o serviço sobe o limite ao arrancar (até 65 536, conforme o sistema deixar) e nunca guarda mais de 128 ficheiros abertos por pedido do NFS: os parados fecham-se logo, a começar pelos mais antigos. Também se aplica ao Linux (o limite).
+
 ## 1.3.0 — 2026-11-13
 
 - **macOS: copiar muitos ficheiros ficou 4 a 5 vezes mais rápido.** O servidor NFS (`nfsserve`) percorria, em cada pedido, a lista de todos os pedidos do último minuto. Quanto mais depressa se copiava, mais lento ficava cada pedido: o `react-app` com `node_modules` (6 684 entradas) demorava 132 s e agora demora ~30 s. Também desapareceram os erros ocasionais «could not copy extended attributes» que isto provocava. O `nfsserve` passa a vir no repositório (`vendor/nfsserve`) com essa correção.

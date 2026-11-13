@@ -25,6 +25,9 @@ use tokio::sync::watch;
 /// A file nobody has touched for this long counts as closed.
 const IDLE_READ: Duration = Duration::from_secs(5);
 const IDLE_WRITE: Duration = Duration::from_secs(1);
+/// Past this many open files, idle ones are closed at once (oldest first):
+/// each holds a cache file descriptor, and a big copy touches thousands.
+const MAX_OPEN: usize = 128;
 
 /// Files opened implicitly by NFS requests, keyed by (node, for writing).
 #[derive(Default)]
@@ -67,6 +70,9 @@ impl Handles {
                 }
             }
             None => {
+                if open.len() >= MAX_OPEN {
+                    Self::close_oldest(&mut open, vfs);
+                }
                 if !already_open {
                     vfs.open_file(id, write)?;
                 }
@@ -74,6 +80,17 @@ impl Handles {
             }
         }
         Ok(Use { handles: self, key: (id, write) })
+    }
+
+    /// Closes idle files, oldest first, until there is room under `MAX_OPEN`.
+    fn close_oldest(open: &mut HashMap<(NodeId, bool), Handle>, vfs: &Vfs) {
+        let mut idle: Vec<_> = open.iter().filter(|(_, h)| h.busy == 0).map(|(&k, h)| (h.last, k)).collect();
+        idle.sort_unstable_by_key(|&(last, _)| last);
+        let excess = (open.len() + 1).saturating_sub(MAX_OPEN);
+        for (_, key) in idle.into_iter().take(excess.max(MAX_OPEN / 4)) {
+            open.remove(&key);
+            vfs.release(key.0, key.1);
+        }
     }
 
     /// Closes the files that have been idle long enough (or all of them).

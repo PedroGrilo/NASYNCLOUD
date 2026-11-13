@@ -16,7 +16,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.3.0, 2026-11-13)
+## Estado atual (v1.3.1, 2026-11-13)
 
 | Parte | Estado |
 |---|---|
@@ -127,7 +127,8 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **macOS, caches do cliente NFS**: o cliente só larga listagens e conteúdos quando a data muda, e a NAS dá segundos. `Attr::change` (`mut_gen` + `seen_gen`) vai nos nanossegundos. `getattr` usa `getattr_fresh`. `nonegnamecache` e `actimeo=1` são precisos para alterações na NAS aparecerem (o e2e falha sem eles).
 - **macOS, `st_blocks`**: o cliente NFS ignora o `used` e calcula-o a partir do tamanho, por isso o `du` não serve no macOS (o e2e salta essa verificação). O FSSTAT do `nfsserve` devolve sempre 1 TiB livre.
 - **macOS, `._*` e xattrs**: o NFSv3 não tem xattrs; o macOS grava-os em `._nome`. `nfs.rs` guarda `._*` e `.DS_Store` num `Litter` em memória (ids ≥ 2⁶²): não vão para a NAS, não são listados e perdem-se ao parar. Por isso os xattrs de controlo da CLI não funcionam no macOS e os comandos usam a API local (`/api/status`, `/api/info` só existem no macOS).
-- **macOS, abrir/fechar**: o NFS não os tem. `nfs::Handles` abre no `Vfs` no primeiro READ/WRITE e fecha após 1 s (escrita) ou 5 s (leitura) sem uso, nunca com pedidos em curso (`busy`). O `Vfs::create` já devolve o ficheiro aberto para escrita: `use_file(.., already_open=true)`.
+- **macOS, abrir/fechar**: o NFS não os tem. `nfs::Handles` abre no `Vfs` no primeiro READ/WRITE e fecha após 1 s (escrita) ou 5 s (leitura) sem uso, nunca com pedidos em curso (`busy`). Acima de `MAX_OPEN` (128) fecha logo os parados mais antigos.
+- **Ficheiros abertos (EMFILE)**: cada ficheiro aberto no `Vfs` guarda um descritor (`Node::file`). O launchd dá 256 às apps, por isso `main::raise_fd_limit` sobe o limite suave em `mount`/`ui`/`serve`. Sem isto, uma cópia grande no Finder dava «erro -36», e as ligações à NAS falhavam («tcp open error»). Para testar o limite: `ulimit -Sn 256` antes de arrancar o serviço. O `Vfs::create` já devolve o ficheiro aberto para escrita: `use_file(.., already_open=true)`.
 - **App (desktop/)**: não depende da crate `nasyncloud` de propósito (o serviço é um processo à parte, e a app continua viva para dizer quando ele falha). Fala com o serviço por HTTP em 127.0.0.1 (token do `ui.json`). As páginas pedem coisas à app navegando para `/app/<ação>` (main, hide, quit, restart, web), que o `on_navigation` interceta: assim não é preciso IPC do Tauri em páginas servidas por outro processo. O painel é uma janela sem moldura, transparente e sempre por cima, que se esconde ao perder o foco; o `hidden_at` evita que o mesmo clique no ícone o volte a abrir.
 - **App, compilar para Windows a partir do Mac**: falha no `tauri-build` (precisa de `llvm-rc` para os recursos). Fica para o workflow (runner Windows).
 - **Arquivo de atualização no macOS**: criar sempre com `COPYFILE_DISABLE=1 tar --no-mac-metadata`. Sem isso, o tar mete entradas `._*` (AppleDouble) e o atualizador falha a extrair.
