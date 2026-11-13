@@ -44,8 +44,13 @@ pub struct Config {
     /// Quiet time after a file is closed before it is uploaded.
     #[serde(default = "default_upload_delay")]
     pub upload_delay_secs: u64,
+    /// Uploads at the same time when `parallel_uploads_auto` is off (1 to 64).
     #[serde(default = "default_parallel")]
     pub parallel_uploads: usize,
+    /// Picks the number of simultaneous uploads from the file sizes: many
+    /// small files at once, only a few large ones.
+    #[serde(default = "default_true")]
+    pub parallel_uploads_auto: bool,
     /// How far ahead of the reader a streaming download may run.
     #[serde(default = "default_readahead")]
     pub readahead_mb: u64,
@@ -101,6 +106,7 @@ impl Config {
             poll_interval_secs: default_poll(),
             upload_delay_secs: default_upload_delay(),
             parallel_uploads: default_parallel(),
+            parallel_uploads_auto: true,
             readahead_mb: default_readahead(),
             atomic_upload: true,
             ui_port: DEFAULT_UI_PORT,

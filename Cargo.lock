@@ -2716,7 +2716,7 @@ dependencies = [
 
 [[package]]
 name = "nasyncloud"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "nasyncloud-desktop"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "directories",
  "serde",
@@ -2819,8 +2819,6 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nfsserve"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef1424b6d88c60a091931392970999ea3ceab132d968e6a5545c770fad5b97d7"
 dependencies = [
  "anyhow",
  "async-trait",

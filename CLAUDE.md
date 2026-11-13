@@ -16,7 +16,7 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.0.0 + macOS sem macFUSE por lançar, 2026-11-12)
+## Estado atual (v1.3.0, 2026-11-13)
 
 | Parte | Estado |
 |---|---|
@@ -132,6 +132,10 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **App, compilar para Windows a partir do Mac**: falha no `tauri-build` (precisa de `llvm-rc` para os recursos). Fica para o workflow (runner Windows).
 - **Arquivo de atualização no macOS**: criar sempre com `COPYFILE_DISABLE=1 tar --no-mac-metadata`. Sem isso, o tar mete entradas `._*` (AppleDouble) e o atualizador falha a extrair.
 - **Porta-chaves e assinatura ad-hoc**: cada build muda a assinatura, por isso, depois de atualizar, o macOS volta a pedir acesso à password. O serviço já abre a interface antes de ler o Porta-chaves e a app espera até 2 minutos por ele. Com Developer ID, o pedido deixa de aparecer.
+- **Symlinks** (Linux/macOS): `Kind::Symlink`, alvo em `Record::link`. O WebDAV não os tem, por isso ficam sempre só neste computador (`stays_local`, `local_change`), como os excluídos. Sem isto o Finder falhava a copiar qualquer `node_modules` (`.bin/*`). No Windows não há nada disto.
+- **Envios em simultâneo**: `parallel_uploads_auto` (por omissão) dá a cada envio um peso de 1 por MiB (1–32) num orçamento de `MAX_UPLOADS` (64), por ordem: 64 pequenos ou 2 grandes. O motor do Windows envia um de cada vez e ignora isto.
+- **macOS, `nfsserve` no repositório** (`vendor/nfsserve`, por `[patch.crates-io]`): a 0.11.0 com a limpeza do `TransactionTracker` limitada a uma vez por segundo (antes, cada pedido varria todos os do último minuto, o que tornava as cópias de muitos ficheiros quadráticas). Ao atualizar o `nfsserve`, ver `vendor/nfsserve/NASYNCLOUD.md`. O `nfsserve` não implementa o COMMIT (responde `FILE_SYNC` a cada WRITE), por isso o `Vfs::fsync` nunca é chamado pelo NFS.
+- **macOS, desempenho**: medir sempre com `--release` (o build debug é 5 a 10 vezes mais lento por pedido NFS). Referência: `cp -Rp` do `react-app` (6 684 entradas, `node_modules` excluído) ~30 s; cada ficheiro custa ~20 pedidos NFS (o macOS junta `com.apple.provenance` a cada ficheiro novo, num `._*`). `nfsstat -c` conta os pedidos, mas inclui os de todos os mounts NFS (a app do Pedro faz ~100/s de fundo).
 - **zsh**: `log` é um builtin; para os registos do sistema usar `/usr/bin/log show`.
 - **App macOS**: `LSUIElement` (sem Dock), por isso a única forma normal de sair é o botão «Sair» da interface (`/api/quit`). Como a assinatura é ad-hoc, o Porta-chaves pode voltar a pedir autorização para a password depois de cada atualização da app.
 

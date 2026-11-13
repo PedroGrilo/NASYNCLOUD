@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — 2026-11-13
+
+- **macOS: copiar muitos ficheiros ficou 4 a 5 vezes mais rápido.** O servidor NFS (`nfsserve`) percorria, em cada pedido, a lista de todos os pedidos do último minuto. Quanto mais depressa se copiava, mais lento ficava cada pedido: o `react-app` com `node_modules` (6 684 entradas) demorava 132 s e agora demora ~30 s. Também desapareceram os erros ocasionais «could not copy extended attributes» que isto provocava. O `nfsserve` passa a vir no repositório (`vendor/nfsserve`) com essa correção.
+- **Linux e macOS: ligações simbólicas (symlinks).** Copiar uma pasta com symlinks (um `node_modules`, por exemplo, com `.bin/jsesc -> ../jsesc/bin/jsesc`) falhava no Finder com «não foi possível ler ou escrever alguns dados». O WebDAV não tem symlinks, por isso ficam só neste computador, como os itens excluídos: aparecem e funcionam aqui, sobrevivem a reinícios, mas não vão para a NAS.
+- **Envios em simultâneo: automático ou manual.** No modo automático (o novo valor por omissão) o número é escolhido pelo tamanho dos ficheiros: até 64 pequenos ao mesmo tempo (onde o tempo vai nas idas e voltas à NAS), menos à medida que crescem, e 2 de cada vez acima de 32 MB. No manual, o limite subiu de 16 para 64. Linux e macOS (o Windows envia um de cada vez).
+
 ## 1.2.1 — 2026-11-12
 
 - **Windows: acabou a cascata de cópias de conflito.** Depois de enviar um ficheiro, marcá-lo como sincronizado podia falhar com «O identificador é inválido» (0x80070006) quando outro programa o abria logo a seguir (um antivírus a analisar um `.zip`, por exemplo). A tentativa seguinte tomava o próprio envio por uma alteração na NAS e criava mais uma cópia, `(conflict …) (conflict …)`, sem fim. Agora a marcação usa um handle normal do ficheiro, e um ficheiro que já está na NAS com o mesmo tamanho e a mesma data conta como nosso.

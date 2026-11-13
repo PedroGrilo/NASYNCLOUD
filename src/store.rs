@@ -43,6 +43,9 @@ pub struct Record {
     /// (folders) the children are known.
     #[serde(default)]
     pub listed: bool,
+    /// (symbolic links) the target. Links only exist on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 pub struct Store {
@@ -117,6 +120,7 @@ mod tests {
             dirty: false,
             atime: 0,
             listed: false,
+            link: None,
         };
         {
             let store = Store::open(&path).unwrap();

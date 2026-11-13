@@ -20,6 +20,7 @@ fn options(dir: &Path) -> VfsOptions {
         poll_interval: Duration::from_secs(1),
         upload_delay: Duration::from_millis(50),
         parallel_uploads: 2,
+        parallel_auto: false,
         readahead: 256 << 10,
         atomic_upload: true,
         excludes: Excludes::default(),
@@ -452,5 +453,88 @@ async fn excluded_items_stay_local() {
     assert!(wait_for(10, || srv.exists("proj/trace.LOG")).await);
     assert!(!names(&vfs, proj).await.contains(&"src".to_string()));
     assert!(srv.exists("proj/src/lib.rs"));
+    vfs.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn symlinks_stay_local() {
+    let srv = TestServer::start().await;
+    srv.write("app/pkg/bin/tool", b"#!/bin/sh");
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let vfs = open(&srv, dir.path(), |_| {}).await;
+        let app = id(&vfs, "app").await;
+        let bin = vfs.mkdir(app, ".bin").await.unwrap().id;
+        let a = vfs.symlink(bin, "tool", "../pkg/bin/tool").unwrap();
+        assert_eq!(a.kind, nasyncloud::vfs::Kind::Symlink);
+        assert_eq!(a.size, "../pkg/bin/tool".len() as u64);
+        assert!(matches!(vfs.symlink(bin, "tool", "x"), Err(VfsError::Exists)));
+        assert_eq!(vfs.readlink(a.id).unwrap(), "../pkg/bin/tool");
+        assert!(matches!(vfs.readlink(id(&vfs, "app/pkg/bin/tool").await), Err(VfsError::Invalid)));
+        // The folder holding it is uploaded, the link is not.
+        assert!(wait_for(10, || vfs.pending_uploads() == 0).await, "{:?}", vfs.info());
+        assert!(srv.exists("app/.bin"));
+        assert_eq!(srv.names("app/.bin"), Vec::<String>::new());
+        // A server listing does not drop it, and renaming keeps it local.
+        vfs.refresh(bin).await.unwrap();
+        vfs.rename(bin, "tool", bin, "tool2", false).await.unwrap();
+        assert_eq!(names(&vfs, bin).await, ["tool2"]);
+        assert_eq!(vfs.status(id(&vfs, "app/.bin/tool2").await).unwrap().state, "local");
+        vfs.shutdown().await;
+    }
+    // It survives a restart, and can be deleted.
+    let vfs = open(&srv, dir.path(), |_| {}).await;
+    let bin = id(&vfs, "app/.bin").await;
+    let l = id(&vfs, "app/.bin/tool2").await;
+    assert_eq!(vfs.readlink(l).unwrap(), "../pkg/bin/tool");
+    vfs.unlink(bin, "tool2").await.unwrap();
+    assert!(names(&vfs, bin).await.is_empty());
+    vfs.rmdir(id(&vfs, "app").await, ".bin").await.unwrap();
+    assert!(!srv.exists("app/.bin"));
+    vfs.shutdown().await;
+}
+
+/// Highest number of uploads seen in flight until the queue is empty.
+async fn peak_uploads(vfs: &Arc<Vfs>, secs: u64) -> u64 {
+    let end = std::time::Instant::now() + Duration::from_secs(secs);
+    let mut peak = 0;
+    while std::time::Instant::now() < end {
+        let info = vfs.info();
+        peak = peak.max(info.uploading);
+        if info.pending_uploads == 0 && info.uploading == 0 {
+            return peak;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("uploads did not finish: {:?}", vfs.info());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automatic_parallel_uploads() {
+    let srv = TestServer::start().await;
+    srv.write("small/.keep", b"");
+    srv.write("big/.keep", b"");
+    let dir = tempfile::tempdir().unwrap();
+    let vfs = open(&srv, dir.path(), |o| o.parallel_auto = true).await;
+    let (small, big) = (id(&vfs, "small").await, id(&vfs, "big").await);
+
+    // Many small files: far more than two at a time.
+    srv.delay_ms.store(150, std::sync::atomic::Ordering::SeqCst);
+    for i in 0..40 {
+        put(&vfs, small, &format!("f{i}.txt"), b"tiny").await;
+    }
+    let peak = peak_uploads(&vfs, 30).await;
+    assert!(peak > 16, "only {peak} small uploads at once");
+    assert_eq!(srv.names("small").len(), 41);
+
+    // Large files: two at a time.
+    srv.delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let data = vec![7u8; 33 << 20];
+    for i in 0..4 {
+        put(&vfs, big, &format!("b{i}.bin"), &data).await;
+    }
+    let peak = peak_uploads(&vfs, 60).await;
+    assert!((1..=2).contains(&peak), "{peak} large uploads at once");
+    assert_eq!(srv.names("big").len(), 5);
     vfs.shutdown().await;
 }

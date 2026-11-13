@@ -185,13 +185,18 @@ struct NasNfs {
 impl NasNfs {
     fn fattr(&self, a: &Attr) -> fattr3 {
         let dir = a.kind == Kind::Dir;
+        let (ftype, mode) = match a.kind {
+            Kind::Dir => (ftype3::NF3DIR, 0o755),
+            Kind::File => (ftype3::NF3REG, 0o644),
+            Kind::Symlink => (ftype3::NF3LNK, 0o755),
+        };
         // The nanoseconds carry the change counter: the NAS gives whole
         // seconds, and the client only drops its cached listing or contents
         // when the timestamp moves.
         let t = nfstime3 { nseconds: (a.change % 1_000_000_000) as u32, ..time(a.mtime) };
         fattr3 {
-            ftype: if dir { ftype3::NF3DIR } else { ftype3::NF3REG },
-            mode: if dir { 0o755 } else { 0o644 },
+            ftype,
+            mode,
             nlink: if dir { 2 } else { 1 },
             uid: self.owner.0,
             gid: self.owner.1,
@@ -355,7 +360,7 @@ impl NFSFileSystem for NasNfs {
         let a = self.vfs.lookup(dirid, filename).await.map_err(|e| status(&e))?;
         let res = match a.kind {
             Kind::Dir => self.vfs.rmdir(dirid, filename).await,
-            Kind::File => self.vfs.unlink(dirid, filename).await,
+            Kind::File | Kind::Symlink => self.vfs.unlink(dirid, filename).await,
         };
         res.map_err(|e| status(&e))
     }
@@ -389,12 +394,19 @@ impl NFSFileSystem for NasNfs {
         Ok(ReadDirResult { entries, end })
     }
 
-    async fn symlink(&self, _dirid: fileid3, _linkname: &filename3, _symlink: &nfspath3, _attr: &sattr3) -> Result<(fileid3, fattr3), nfsstat3> {
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+    /// Links stay on this computer (see `Kind::Symlink`).
+    async fn symlink(&self, dirid: fileid3, linkname: &filename3, symlink: &nfspath3, _attr: &sattr3) -> Result<(fileid3, fattr3), nfsstat3> {
+        let Some(linkname) = name(linkname).filter(|n| !finder_litter(n)) else { return Err(nfsstat3::NFS3ERR_ACCES) };
+        let Ok(target) = std::str::from_utf8(&symlink.0) else { return Err(nfsstat3::NFS3ERR_INVAL) };
+        let a = self.vfs.symlink(dirid, linkname, target).map_err(|e| status(&e))?;
+        Ok((a.id, self.fattr(&a)))
     }
 
-    async fn readlink(&self, _id: fileid3) -> Result<nfspath3, nfsstat3> {
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+    async fn readlink(&self, id: fileid3) -> Result<nfspath3, nfsstat3> {
+        if id >= LITTER_IDS {
+            return Err(nfsstat3::NFS3ERR_INVAL);
+        }
+        self.vfs.readlink(id).map(|t| t.into_bytes().into()).map_err(|e| status(&e))
     }
 }
 

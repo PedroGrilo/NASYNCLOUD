@@ -33,6 +33,9 @@ use crate::store::{Record, Store};
 use transfer::{Dl, UploadHandle};
 
 /// Extended attributes through which the `nasyncloud` command talks to a running mount.
+/// Most uploads at the same time, in either mode.
+pub const MAX_UPLOADS: usize = 64;
+
 pub const XATTR_STATUS: &str = "user.nasyncloud.status";
 pub const XATTR_INFO: &str = "user.nasyncloud.info";
 pub const XATTR_PIN: &str = "user.nasyncloud.pin";
@@ -96,7 +99,10 @@ pub struct VfsOptions {
     pub dir_ttl: Duration,
     pub poll_interval: Duration,
     pub upload_delay: Duration,
+    /// Simultaneous uploads (manual mode).
     pub parallel_uploads: usize,
+    /// Simultaneous uploads chosen from the file sizes (see `transfer::upload_weight`).
+    pub parallel_auto: bool,
     pub readahead: u64,
     pub atomic_upload: bool,
     /// What stays on this computer only: never uploaded, and hidden when the NAS has it.
@@ -111,7 +117,8 @@ impl VfsOptions {
             dir_ttl: Duration::from_secs(cfg.dir_ttl_secs),
             poll_interval: Duration::from_secs(cfg.poll_interval_secs.max(10)),
             upload_delay: Duration::from_secs(cfg.upload_delay_secs),
-            parallel_uploads: cfg.parallel_uploads.clamp(1, 16),
+            parallel_uploads: cfg.parallel_uploads.clamp(1, MAX_UPLOADS),
+            parallel_auto: cfg.parallel_uploads_auto,
             readahead: cfg.readahead_mb.clamp(1, 1024) << 20,
             atomic_upload: cfg.atomic_upload,
             excludes: cfg.excludes(),
@@ -123,6 +130,9 @@ impl VfsOptions {
 pub enum Kind {
     File,
     Dir,
+    /// A symbolic link. WebDAV has no such thing, so links stay on this
+    /// computer only (like excluded items) and are never sent to the NAS.
+    Symlink,
 }
 
 /// What the file system layer needs to answer `stat`.
@@ -189,6 +199,8 @@ struct Node {
     dirty: bool,
     atime: i64,
     listed: bool,
+    /// (symbolic links) the target.
+    link: String,
     // ---- runtime only
     children: BTreeMap<String, NodeId>,
     listed_at: Option<Instant>,
@@ -234,6 +246,7 @@ impl Node {
             dirty: false,
             atime: 0,
             listed: false,
+            link: String::new(),
             children: BTreeMap::new(),
             listed_at: None,
             mut_gen: 0,
@@ -254,7 +267,13 @@ impl Node {
     }
 
     fn from_record(r: Record) -> Self {
-        let mut n = Node::new(r.id, r.parent, &r.name, if r.dir { Kind::Dir } else { Kind::File });
+        let kind = match (&r.link, r.dir) {
+            (Some(_), _) => Kind::Symlink,
+            (None, true) => Kind::Dir,
+            (None, false) => Kind::File,
+        };
+        let mut n = Node::new(r.id, r.parent, &r.name, kind);
+        n.link = r.link.unwrap_or_default();
         n.size = r.size;
         n.mtime = r.mtime;
         n.remote = r.remote;
@@ -282,6 +301,7 @@ impl Node {
             dirty: self.dirty,
             atime: self.atime,
             listed: self.listed,
+            link: (self.kind == Kind::Symlink).then(|| self.link.clone()),
         }
     }
 
@@ -296,7 +316,7 @@ impl Node {
 
     /// Exists only here (or was changed here) and still has to reach the server.
     fn local_change(&self) -> bool {
-        self.remote.is_none() || self.dirty
+        self.remote.is_none() || self.dirty || self.kind == Kind::Symlink
     }
 }
 
@@ -313,6 +333,8 @@ struct State {
     /// Pending uploads / remote folder creations, by node.
     jobs: HashMap<NodeId, Job>,
     uploading: usize,
+    /// Sum of the weights of the uploads in flight (automatic mode).
+    upload_weight: usize,
     /// Index records to rewrite / delete at the next flush.
     stale: HashSet<NodeId>,
     gone: Vec<NodeId>,
@@ -420,7 +442,7 @@ impl State {
     /// or through a folder above it). Never sent to the NAS.
     fn stays_local(&self, id: NodeId, excludes: &Excludes) -> bool {
         let Some(n) = self.nodes.get(&id) else { return false };
-        if is_local_only_name(&n.name) {
+        if n.kind == Kind::Symlink || is_local_only_name(&n.name) {
             return true;
         }
         if id == ROOT || excludes.is_empty() {
@@ -509,7 +531,7 @@ impl Vfs {
         }
         let store = Arc::new(Store::open(&opts.state_dir.join("index.redb"))?);
         let (records, next_id) = store.load()?;
-        let mut st = State { nodes: HashMap::new(), next_id: next_id.max(2), cache_bytes: 0, jobs: HashMap::new(), uploading: 0, stale: HashSet::new(), gone: Vec::new() };
+        let mut st = State { nodes: HashMap::new(), next_id: next_id.max(2), cache_bytes: 0, jobs: HashMap::new(), uploading: 0, upload_weight: 0, stale: HashSet::new(), gone: Vec::new() };
         Self::rebuild(&mut st, records, &data_dir, &opts.excludes);
         if !opts.excludes.is_empty() {
             log::info!("some files and folders stay on this computer only (exclusions in the settings)");
@@ -1126,12 +1148,45 @@ impl Vfs {
         Ok(attr)
     }
 
+    /// Creates a symbolic link. It stays on this computer (see [`Kind::Symlink`]).
+    pub fn symlink(&self, parent: NodeId, name: &str, target: &str) -> Result<Attr> {
+        if !valid_name(name) || target.is_empty() || target.len() > 4096 || target.contains('\0') {
+            return Err(VfsError::Invalid);
+        }
+        let mut st = self.st();
+        if st.dir(parent)?.children.contains_key(name) {
+            return Err(VfsError::Exists);
+        }
+        let id = st.alloc_id();
+        let mut n = Node::new(id, parent, name, Kind::Symlink);
+        n.size = target.len() as u64;
+        n.link = target.to_string();
+        let attr = n.attr();
+        st.insert(n);
+        st.bump(parent);
+        self.flush_wake.notify_one();
+        Ok(attr)
+    }
+
+    pub fn readlink(&self, id: NodeId) -> Result<String> {
+        let st = self.st();
+        let n = st.get(id)?;
+        if n.kind != Kind::Symlink {
+            return Err(VfsError::Invalid);
+        }
+        Ok(n.link.clone())
+    }
+
+    /// Removes a file or a symbolic link.
     pub async fn unlink(self: &Arc<Self>, parent: NodeId, name: &str) -> Result<()> {
         let (id, path, on_server, upload) = {
             let mut st = self.st();
             let id = st.child(parent, name)?;
             let path = st.path(id).ok_or(VfsError::NotFound)?;
-            let n = st.file_mut(id)?;
+            let n = st.get_mut(id)?;
+            if n.kind == Kind::Dir {
+                return Err(VfsError::IsDir);
+            }
             (id, path, n.remote.is_some(), n.upload.take())
         };
         let mut leftovers = false;
@@ -1288,8 +1343,11 @@ impl Vfs {
             // A local-only item replacing something on the server keeps that
             // version as its base, so the upload overwrites it knowingly.
             n.remote = inherited;
-            if n.kind == Kind::File {
-                n.dirty = true;
+            match n.kind {
+                Kind::File => n.dirty = true,
+                // Links never reach the server, so they have no version there.
+                Kind::Symlink => n.remote = None,
+                Kind::Dir => {}
             }
         }
         st.bump(parent);
@@ -1350,7 +1408,7 @@ impl Vfs {
         let pinned = st.pin_of(id);
         let ex = &self.opts.excludes;
         let local = st.stays_local(id, ex);
-        if n.kind == Kind::File {
+        if n.kind != Kind::Dir {
             let state = if local {
                 "local"
             } else if n.upload.is_some() {

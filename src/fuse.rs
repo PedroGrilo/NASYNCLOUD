@@ -60,6 +60,7 @@ fn kind(k: Kind) -> FileType {
     match k {
         Kind::Dir => FileType::Directory,
         Kind::File => FileType::RegularFile,
+        Kind::Symlink => FileType::Symlink,
     }
 }
 
@@ -81,7 +82,7 @@ fn fattr(a: &Attr, owner: (u32, u32)) -> FileAttr {
         ctime: time,
         crtime: time,
         kind: kind(a.kind),
-        perm: if dir { 0o755 } else { 0o644 },
+        perm: if a.kind == Kind::File { 0o644 } else { 0o755 },
         nlink: if dir { 2 } else { 1 },
         uid: owner.0,
         gid: owner.1,
@@ -174,6 +175,22 @@ impl Filesystem for NasFs {
                 Err(e) => reply.error(errno(&e)),
             }
         });
+    }
+
+    /// Links stay on this computer (see `Kind::Symlink`).
+    fn symlink(&self, _req: &Request, parent: INodeNo, link_name: &OsStr, target: &Path, reply: ReplyEntry) {
+        let (Some(name), Some(target)) = (utf8(link_name), target.to_str()) else { return reply.error(Errno::EINVAL) };
+        match self.vfs.symlink(parent.0, &name, target) {
+            Ok(a) => reply.entry(&TTL, &fattr(&a, self.owner), Generation(0)),
+            Err(e) => reply.error(errno(&e)),
+        }
+    }
+
+    fn readlink(&self, _req: &Request, ino: INodeNo, reply: ReplyData) {
+        match self.vfs.readlink(ino.0) {
+            Ok(t) => reply.data(t.as_bytes()),
+            Err(e) => reply.error(errno(&e)),
+        }
     }
 
     fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {

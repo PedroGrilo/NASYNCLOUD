@@ -109,7 +109,8 @@ A interface mostra onde está o ficheiro (no Linux, `~/.config/nasyncloud/config
 | `dir_ttl_secs` | `30` | Quanto tempo uma listagem de pasta é usada antes de perguntar à NAS outra vez. |
 | `poll_interval_secs` | `300` | De quanto em quanto tempo as pastas fixadas (e, no Windows, todas as pastas já abertas) são comparadas com a NAS. No Windows, uma pasta que se abre no Explorador é relida ao fim de `dir_ttl_secs`, sem esperar por isto. |
 | `upload_delay_secs` | `2` | Pausa depois de fechar um ficheiro antes de o enviar. |
-| `parallel_uploads` | `2` | Uploads em simultâneo. |
+| `parallel_uploads_auto` | `true` | Escolhe o número de envios em simultâneo pelo tamanho dos ficheiros: até 64 pequenos ao mesmo tempo, 2 de cada vez acima de 32 MB (cada envio «pesa» 1 por MiB, de 1 a 32, num total de 64). Linux/macOS. |
+| `parallel_uploads` | `2` | Envios em simultâneo quando `parallel_uploads_auto = false` (de 1 a 64). Linux/macOS. |
 | `readahead_mb` | `8` | Quanto o download pode ir à frente da leitura. |
 | `atomic_upload` | `true` | Upload para nome temporário + renomear. Se a NAS não deixar, passa sozinho para upload direto. |
 | `accept_invalid_certs` | `false` | Aceitar certificados HTTPS que não se conseguem verificar. |

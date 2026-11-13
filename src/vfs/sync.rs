@@ -208,6 +208,7 @@ impl Vfs {
             match n.kind {
                 Kind::File => n.dirty = true,
                 Kind::Dir => n.listed = true,
+                Kind::Symlink => {}
             }
         }
         st.touch(id);
@@ -256,7 +257,7 @@ impl Vfs {
                     Kind::Dir if n.remote.is_some() && n.listed_at.is_none_or(|t| t.elapsed() >= self.opts.dir_ttl) => (Todo::List, Vec::new()),
                     Kind::Dir => (Todo::Nothing, n.children.values().copied().collect()),
                     Kind::File if !n.complete() && !n.dirty && n.remote.is_some() => (Todo::Fetch, Vec::new()),
-                    Kind::File => (Todo::Nothing, Vec::new()),
+                    Kind::File | Kind::Symlink => (Todo::Nothing, Vec::new()),
                 }
             };
             match todo {

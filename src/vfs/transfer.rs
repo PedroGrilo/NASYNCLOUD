@@ -74,6 +74,16 @@ impl Dl {
     }
 }
 
+/// Automatic mode: each upload weighs one unit per MiB (at least 1, at most
+/// `MAX_WEIGHT`), and the uploads in flight share `MAX_UPLOADS` units. Small
+/// files, where the time goes into round trips, go up to 64 at once; large
+/// ones, which already fill the link, two at a time.
+const MAX_WEIGHT: u64 = 32;
+
+pub(super) fn upload_weight(size: u64) -> usize {
+    size.div_ceil(1 << 20).clamp(1, MAX_WEIGHT) as usize
+}
+
 const PH_TMP: u8 = 1;
 const PH_MOVE: u8 = 2;
 const PH_DIRECT: u8 = 3;
@@ -82,6 +92,8 @@ const PH_DONE: u8 = 4;
 /// What a cancelled upload may have left behind on the server.
 #[derive(Default)]
 pub(super) struct UploadShared {
+    /// Share of the automatic-mode budget this upload holds.
+    weight: usize,
     phase: AtomicU8,
     tmp: Mutex<Option<String>>,
     dest: Mutex<Option<String>>,
@@ -320,8 +332,9 @@ impl Vfs {
         }
         // Lower ids first: folders are always created before what goes in them.
         due.sort_unstable();
+        let limit = if self.opts.parallel_auto { MAX_UPLOADS } else { self.opts.parallel_uploads };
         for id in due {
-            if st.uploading >= self.opts.parallel_uploads {
+            if st.uploading >= limit {
                 break;
             }
             let Some(n) = st.nodes.get_mut(&id) else {
@@ -334,16 +347,23 @@ impl Vfs {
             let nothing_to_do = match n.kind {
                 Kind::File => n.writers > 0 || !n.local_change(),
                 Kind::Dir => n.remote.is_some(),
+                Kind::Symlink => true,
             };
             if nothing_to_do || n.unlinked {
                 st.jobs.remove(&id);
                 continue;
             }
-            let shared = Arc::new(UploadShared::default());
+            let weight = if n.kind == Kind::File { upload_weight(n.size) } else { 1 };
+            // In order: a large file waits for room instead of being overtaken forever.
+            if self.opts.parallel_auto && st.uploading > 0 && st.upload_weight + weight > MAX_UPLOADS {
+                break;
+            }
+            let shared = Arc::new(UploadShared { weight, ..Default::default() });
             let (me, sh) = (self.clone(), shared.clone());
             let task = tokio::spawn(async move { me.run_job(id, sh).await });
             n.upload = Some(UploadHandle { shared, task });
             st.uploading += 1;
+            st.upload_weight += weight;
         }
         next
     }
@@ -351,7 +371,7 @@ impl Vfs {
     async fn run_job(self: Arc<Self>, id: NodeId, sh: Arc<UploadShared>) {
         let kind = self.st().nodes.get(&id).map(|n| n.kind);
         let res = match kind {
-            None => Ok(()),
+            None | Some(Kind::Symlink) => Ok(()),
             Some(Kind::Dir) => self.ensure_remote_dir(id).await,
             Some(Kind::File) => self.upload_file(id, &sh).await,
         };
@@ -359,6 +379,7 @@ impl Vfs {
             let mut guard = self.st();
             let st = &mut *guard;
             st.uploading = st.uploading.saturating_sub(1);
+            st.upload_weight = st.upload_weight.saturating_sub(sh.weight);
             let mut again = false;
             let stays_local = st.stays_local(id, &self.opts.excludes);
             if let Some(n) = st.nodes.get_mut(&id) {
@@ -558,6 +579,7 @@ impl Vfs {
         {
             let mut st = self.st();
             st.uploading = st.uploading.saturating_sub(1);
+            st.upload_weight = st.upload_weight.saturating_sub(up.shared.weight);
         }
         let tmp = up.shared.tmp.lock().unwrap().take();
         if let Some(tmp) = tmp {

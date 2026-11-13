@@ -197,8 +197,8 @@ main{min-width:0;padding:6px 4px 40px}
 .field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
 .field>span{font-weight:600;font-size:14px}
 .field small{color:var(--faint);font-size:12.5px;line-height:1.45}
-.field input{width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--line);background:rgba(8,10,24,.55);color:var(--text);font:inherit;transition:border-color .15s,box-shadow .15s}
-.field input:focus{outline:none;border-color:rgba(129,140,248,.7);box-shadow:0 0 0 4px rgba(99,102,241,.16)}
+.field input,.field select{width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--line);background:rgba(8,10,24,.55);color:var(--text);font:inherit;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus{outline:none;border-color:rgba(129,140,248,.7);box-shadow:0 0 0 4px rgba(99,102,241,.16)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .check{display:flex;gap:12px;align-items:flex-start;cursor:pointer;margin:2px 0 14px;font-size:14px;color:var(--muted)}
 .check input{appearance:none;-webkit-appearance:none;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--line-hi);background:rgba(8,10,24,.55);flex:none;margin:1px 0 0;display:grid;place-items:center;cursor:pointer}
@@ -222,6 +222,10 @@ details.card[open]>summary{margin-bottom:16px}
 .chip .x:hover{background:rgba(255,255,255,.1);color:var(--text)}
 .excl-add{display:flex;gap:10px}
 .excl-add input{flex:1;min-width:0}
+.par-row{display:flex;gap:10px}
+.par-row select{flex:1;min-width:0;cursor:pointer}
+.par-row input{width:96px;flex:none}
+.par-row input:disabled{opacity:.45}
 .sugg{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .sugg button.chip{cursor:pointer;border-style:dashed;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .sugg button.chip:hover{color:var(--text);border-color:var(--line-hi);background:rgba(255,255,255,.07)}
@@ -376,7 +380,9 @@ details.card[open]>summary{margin-bottom:16px}
             <label class="field"><span>Reler pastas da NAS após (s)</span><input name="dir_ttl_secs" type="number" min="0"></label>
             <label class="field"><span>Verificar o que está offline a cada (s)</span><input name="poll_interval_secs" type="number" min="10"></label>
             <label class="field"><span>Esperar antes de enviar (s)</span><input name="upload_delay_secs" type="number" min="0"></label>
-            <label class="field"><span>Envios em simultâneo</span><input name="parallel_uploads" type="number" min="1" max="16"></label>
+            <div class="field"><span>Envios em simultâneo</span>
+              <div class="par-row"><select name="parallel_uploads_auto" data-bool aria-label="Modo"><option value="true">Automático</option><option value="false">Manual</option></select><input name="parallel_uploads" type="number" min="1" max="64" aria-label="Número de envios em simultâneo"></div>
+              <small id="par-hint"></small></div>
             <label class="field"><span>Leitura antecipada (MB)</span><input name="readahead_mb" type="number" min="1" max="1024"></label>
             <label class="field"><span>Porta desta interface</span><input name="ui_port" type="number" min="1024" max="65535"><small>Aplica-se no próximo arranque.</small></label>
             <label class="check"><input type="checkbox" name="atomic_upload"><span>Enviar para um nome temporário e só no fim substituir o original (um envio interrompido nunca deixa um ficheiro cortado na NAS)</span></label>
@@ -844,7 +850,7 @@ $('#log-filter').addEventListener('click', ev => {
 // ---------------------------------------------------------------- definicoes
 
 const NUMBERS = ['dir_ttl_secs', 'poll_interval_secs', 'upload_delay_secs', 'parallel_uploads', 'readahead_mb', 'ui_port'];
-const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, readahead_mb: 8, atomic_upload: true, ui_port: 8730, exclude: [] };
+const DEFAULTS = { url: '', username: '', mountpoint: '', accept_invalid_certs: false, cache_max_size: '20G', dir_ttl_secs: 30, poll_interval_secs: 300, upload_delay_secs: 2, parallel_uploads: 2, parallel_uploads_auto: true, readahead_mb: 8, atomic_upload: true, ui_port: 8730, exclude: [] };
 const EXCL_SUGGESTIONS = ['.git', 'node_modules', '.venv', '__pycache__', '.next', 'target/', 'dist/', '*.tmp', '*.log'];
 let excludes = [];
 
@@ -876,8 +882,10 @@ function fillForm(force) {
   for (const el of f.elements) {
     if (!el.name || el.name === 'password') continue;
     if (el.type === 'checkbox') el.checked = !!c[el.name];
+    else if ('bool' in el.dataset) el.value = String(!!c[el.name]);
     else el.value = c[el.name] == null ? '' : c[el.name];
   }
+  parallelMode();
   excludes = Array.isArray(c.exclude) ? c.exclude.slice() : [];
   renderExcludes();
   if (force) {
@@ -900,13 +908,24 @@ function readForm() {
   const c = {};
   for (const el of $('#cfg-form').elements) {
     if (!el.name || el.name === 'password') continue;
-    c[el.name] = el.type === 'checkbox' ? el.checked : NUMBERS.includes(el.name) ? Number(el.value) : el.value.trim();
+    c[el.name] = el.type === 'checkbox' ? el.checked : 'bool' in el.dataset ? el.value === 'true' : NUMBERS.includes(el.name) ? Number(el.value) : el.value.trim();
   }
   c.exclude = excludes.slice();
   return c;
 }
 
 $('#cfg-form').addEventListener('input', () => { formDirty = true; });
+
+/// Automatic: the number comes from the file sizes, so the box is only for manual.
+function parallelMode() {
+  const f = $('#cfg-form');
+  const auto = f.elements.parallel_uploads_auto.value === 'true';
+  f.elements.parallel_uploads.disabled = auto;
+  $('#par-hint').textContent = auto
+    ? 'Escolhido pelo tamanho dos ficheiros: até 64 pequenos ao mesmo tempo, menos à medida que crescem, e 2 de cada vez acima de 32 MB.'
+    : 'Sempre este número, de 1 a 64. Mais ajuda com muitos ficheiros pequenos; com ficheiros grandes a rede enche antes.';
+}
+$('#cfg-form').elements.parallel_uploads_auto.addEventListener('change', () => { formDirty = true; parallelMode(); });
 
 $('#btn-test').addEventListener('click', async () => {
   const f = $('#cfg-form');
