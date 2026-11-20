@@ -231,6 +231,14 @@ details.card[open]>summary{margin-bottom:16px}
 .sugg button.chip:hover{color:var(--text);border-color:var(--line-hi);background:rgba(255,255,255,.07)}
 .save-row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
 .platform-windows .only-unix,body:not(.platform-windows) .only-win{display:none}
+.kf-list{display:flex;flex-direction:column}
+.kf-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.kf-row:first-child{border-top:0}
+.kf-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.kf-name b{font-size:14px}
+.kf-path{font-family:var(--mono);font-size:12px;color:var(--faint);overflow-wrap:anywhere}
+.kf-row .btn{flex:none}
+@media (max-width:620px){.kf-row{flex-wrap:wrap}.kf-row .btn{margin-left:auto}}
 
 /* toasts, overlay */
 #toasts{position:fixed;right:22px;bottom:22px;display:flex;flex-direction:column;gap:10px;z-index:20;max-width:min(420px,calc(100vw - 44px))}
@@ -364,6 +372,12 @@ details.card[open]>summary{margin-bottom:16px}
           <p class="muted small only-win">No Windows, o espaço é gerido pelo próprio sistema. Usa «Libertar espaço» quando quiseres.</p>
           <label class="check"><input type="checkbox" name="prevent_sleep"><span>Não deixar o computador suspender sozinho enquanto há ficheiros por enviar (bloquear o ecrã não interrompe os envios; fechar a tampa ou suspender à mão sim, e continuam ao acordar)</span></label>
           <label class="check" id="autostart-row" hidden><input type="checkbox" id="autostart"><span>Abrir o NASYNCLOUD ao iniciar sessão no computador</span></label>
+        </div>
+        <div class="card glass span2 only-win" id="kf-card">
+          <div class="card-head" data-icon="cloud">Ambiente de trabalho, Documentos e Imagens na NAS</div>
+          <p class="muted small">Como no OneDrive: o que está na pasta passa para a pasta da NAS e é enviado, e o Windows passa a ir buscá-la lá. Continua a aparecer no mesmo sítio (Explorador, «Guardar como», atalhos), mas fica guardada na NAS e podes libertar espaço como em qualquer outro ficheiro.</p>
+          <div class="kf-list" id="kf-list"></div>
+          <small class="muted" id="kf-note"></small>
         </div>
         <div class="card glass span2" id="excl-card">
           <div class="card-head" data-icon="local">Excluir da sincronização</div>
@@ -543,6 +557,7 @@ async function refreshState() {
     const first = prevPhase === null;
     prevPhase = S.phase;
     if (!first && view === 'ficheiros') loadFiles(true);
+    if (!first && view === 'definicoes') loadFolders();
   }
   if (view === 'definicoes') fillForm(false);
 }
@@ -923,6 +938,50 @@ function readForm() {
 
 $('#cfg-form').addEventListener('input', ev => { if (ev.target.id !== 'autostart') formDirty = true; });
 
+// ---------------------------------------------------------------- known folders (Windows)
+
+let kfBusy = false;
+
+async function loadFolders() {
+  if (!S || S.platform !== 'windows' || kfBusy) return;
+  const list = $('#kf-list');
+  if (S.phase !== 'running') {
+    list.replaceChildren(h('p', { class: 'muted small' }, 'Disponível quando estiver ligado à NAS.'));
+    $('#kf-note').textContent = '';
+    return;
+  }
+  let r;
+  try { r = await api('/api/folders'); } catch (e) { report(e); return; }
+  list.replaceChildren(...r.folders.map(f => h('div', { class: 'kf-row' },
+    h('div', { class: 'kf-name' },
+      h('b', null, f.name),
+      h('span', { class: 'kf-path' }, f.path)),
+    h('span', { class: 'chip ' + (f.on_nas ? 's-cached' : 's-local') }, icon(f.on_nas ? 'cloud' : 'local'), f.on_nas ? 'Na NAS' : 'Só neste computador'),
+    h('button', { type: 'button', class: 'btn sm' + (f.on_nas ? '' : ' primary'), onclick: () => toggleFolder(f) }, f.on_nas ? 'Deixar de guardar na NAS' : 'Guardar na NAS'))));
+  $('#kf-note').textContent = r.folders.some(f => f.on_nas)
+    ? 'Antes de mudares a pasta da NAS nas definições, deixa de guardar estas pastas lá.'
+    : '';
+}
+
+async function toggleFolder(f) {
+  const on = !f.on_nas;
+  const msg = on
+    ? `Guardar «${f.name}» na NAS?\n\nTudo o que está em ${f.path} passa para ${f.nas_path} e começa a ser enviado. A partir daí o Windows usa essa pasta como «${f.name}».\n\nSe esta pasta estiver no OneDrive, os ficheiros saem de lá. Se a NAS já tiver «${f.name}» (de outro computador), as duas juntam-se.`
+    : `Deixar de guardar «${f.name}» na NAS?\n\nO Windows volta a usar a pasta habitual, que fica vazia. Os ficheiros continuam na NAS, em ${f.path}: copia de lá o que quiseres ter fora dela.`;
+  if (!confirm(msg)) return;
+  kfBusy = true;
+  $$('#kf-list button').forEach(b => { b.disabled = true; });
+  toast(on ? `A mover «${f.name}» para a NAS…` : `A devolver «${f.name}»…`);
+  try {
+    const r = await api('/api/folders', { key: f.key, on });
+    if (!on) toast(`«${f.name}» voltou ao sítio habitual. Os ficheiros continuam na NAS.`, 'ok');
+    else if (r.left && r.left.length) toast(`«${f.name}» está na NAS, mas ${plural(r.left.length, 'item ficou', 'itens ficaram')} em ${r.from}: ${r.left.slice(0, 3).join('; ')}`, 'err');
+    else toast(`«${f.name}» está na NAS (${plural(r.moved, 'item movido', 'itens movidos')}). O envio continua em segundo plano.`, 'ok');
+  } catch (e) { report(e); }
+  kfBusy = false;
+  loadFolders();
+}
+
 // Starting with the computer belongs to the desktop app (not to the settings
 // file), so the switch only shows up inside it and talks to it directly.
 let shellAutostart = null;
@@ -1015,6 +1074,7 @@ function route() {
     loadFiles(true);
   } else if (view === 'definicoes') {
     fillForm(true);
+    loadFolders();
   } else if (view === 'atividade') {
     renderLog(true);
   }

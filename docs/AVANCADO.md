@@ -73,7 +73,15 @@ No macOS, estes comandos falam com o serviço pela API local (a mesma da interfa
 
 ### Windows
 
-Para além da interface, tudo funciona no Explorador: a pasta aparece no painel lateral com os ícones de nuvem (só online) e visto verde (no disco). Clique direito → **Manter sempre neste dispositivo** ou **Libertar espaço**. O Sensor de Armazenamento também pode libertar espaço sozinho. Para remover o registo da pasta no Windows (os ficheiros na NAS não são tocados): `nasyncloud unregister`.
+Para além da interface, tudo funciona no Explorador: a pasta aparece no painel lateral com os ícones de nuvem (só online) e visto verde (no disco). Clique direito → **Manter sempre neste dispositivo** ou **Libertar espaço**. O Sensor de Armazenamento também pode libertar espaço sozinho. Para remover o registo da pasta no Windows (os ficheiros na NAS não são tocados): `nasyncloud unregister`. Antes de o remover, devolve ao sítio habitual o Ambiente de trabalho, os Documentos e as Imagens que estiverem dentro da pasta.
+
+**Ambiente de trabalho, Documentos e Imagens na NAS** (como o «Known Folder Move» do OneDrive). Em Definições, ou por `GET`/`POST /api/folders` (`{"key":"desktop"|"documents"|"pictures","on":true|false}`):
+
+- **Guardar na NAS**: o conteúdo da pasta passa para `<pasta da NAS>\Ambiente de trabalho` (ou `Documentos`, `Imagens`), e o Windows passa a usar essa pasta (`SHSetKnownFolderPath`). Se a NAS já tiver essa pasta, por exemplo de outro computador, as duas juntam-se. Um nome repetido fica com `(conflict …)`.
+- Itens no mesmo disco sem pontos de reanálise são movidos de uma vez. Os que estão no OneDrive, ou noutro disco, são copiados e depois apagados (os ficheiros só na nuvem do OneDrive são descarregados primeiro). Se algum falhar, fica na pasta antiga e a interface diz qual.
+- Ficam na pasta antiga o `desktop.ini` (dá-lhe o nome traduzido) e as ligações (como as «My Music» escondidas dentro dos Documentos).
+- **Deixar de guardar na NAS**: o Windows volta à pasta por omissão (`%USERPROFILE%\Desktop`…), vazia. Os ficheiros ficam na NAS, como faz o OneDrive.
+- Antes de mudar a `mountpoint`, devolve estas pastas, senão o Windows fica a apontar para a pasta antiga.
 
 ## Arrancar automaticamente
 

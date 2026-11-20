@@ -16,13 +16,13 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.4.0, 2026-11-13)
+## Estado atual (v1.5.0, 2026-11-20)
 
 | Parte | Estado |
 |---|---|
 | Linux (FUSE) | Completo e testado: 28 testes (`cargo test`) + 64 verificações num mount real (`tests/e2e.sh`) |
 | macOS (NFS local) | Completo e testado no Mac do Pedro (macOS 27), sem macFUSE: `cargo test` + 63 verificações num mount real (`tests/e2e.sh`; 1 saltada: `st_blocks`). Testados à mão: cópia pelo Finder, `ditto`/`cp -p` com xattrs, ejetar, recuperação depois de `kill -9` |
-| Windows (Cloud Files) | Compila (`cargo check --target x86_64-pc-windows-msvc`); **nunca correu** |
+| Windows (Cloud Files) | Compila (`cargo check --target x86_64-pc-windows-msvc`) e o Pedro já o usa no Windows; sem testes automáticos. O Ambiente de trabalho, os Documentos e as Imagens na NAS (`src/win/folders.rs`) só foram compilados, nunca correram |
 | Interface web | Testada pela API no e2e e vista no browser (desktop e telemóvel); capturas atuais em `docs/screenshots/` (`panel.png`, `files.png`), feitas com uma NAS de demonstração (`fake_nas`) e o browser do Claude |
 | WebDAV da UGOS | **Nunca testado contra o servidor real.** Testado contra rclone (Go x/net/webdav) e `dav-server` |
 
@@ -54,6 +54,7 @@ src/
   nfs.rs            servidor NFSv3 em 127.0.0.1 (nfsserve) + mount_nfs; `._*` em memória  [macOS]
   unix.rs           Mounted para Linux/macOS + comandos CLI (xattrs no Linux, API local no macOS)  [unix]
   win.rs            motor Windows (cloud-filter 0.0.7) + Mounted                [windows]
+  win/folders.rs    Ambiente de trabalho/Documentos/Imagens na NAS (SHSetKnownFolderPath), API /api/folders  [windows]
 tests/
   common/mod.rs     servidor WebDAV em memória (dav-server) com NAS "em baixo", falhas de PUT, latência
   webdav.rs, vfs.rs testes de integração

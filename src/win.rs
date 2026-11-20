@@ -42,6 +42,9 @@ use tokio::sync::watch;
 
 use crate::service::{EntryView, Listing, MountInfo};
 
+mod folders;
+pub use folders::{FolderView, MoveReport};
+
 const ATTR_PINNED: u32 = 0x0008_0000;
 const ATTR_UNPINNED: u32 = 0x0010_0000;
 /// Quiet time after the last change to a file before we look at it.
@@ -1084,6 +1087,19 @@ impl Mounted {
         self.engine.poke.lock().unwrap().insert(rel.to_string());
         Ok(())
     }
+
+    /// Desktop, Documents and Pictures: where they are, and whether on the NAS.
+    pub async fn folders(&self) -> Result<Vec<FolderView>> {
+        let e = self.engine.clone();
+        tokio::task::spawn_blocking(move || e.folders()).await?
+    }
+
+    /// Moves a known folder (`desktop`, `documents`, `pictures`) into the sync
+    /// folder, or (`on == false`) points it back at its usual place.
+    pub async fn set_folder(&self, key: &str, on: bool) -> Result<MoveReport> {
+        let (e, key) = (self.engine.clone(), key.to_string());
+        tokio::task::spawn_blocking(move || if on { e.move_folder(&key) } else { e.restore_folder(&key).map(|from| MoveReport { from, ..Default::default() }) }).await?
+    }
 }
 
 impl Engine {
@@ -1230,6 +1246,7 @@ impl Engine {
 pub fn unregister(cfg: &Config) -> Result<()> {
     let id = sync_root_id(cfg)?;
     if id.is_registered()? {
+        folders::restore_all(&cfg.mountpoint());
         id.unregister()?;
         println!("{} is no longer a sync folder. Files that were only online are now empty shells: delete the folder.", cfg.mountpoint().display());
     } else {

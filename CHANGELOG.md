@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0 — 2026-11-20
+
+- **Windows: Ambiente de trabalho, Documentos e Imagens na NAS**, como faz o OneDrive. Em Definições, «Guardar na NAS» move o conteúdo da pasta para dentro da pasta da NAS (`Ambiente de trabalho`, `Documentos`, `Imagens`) e o Windows passa a usá-la de lá (`SHSetKnownFolderPath`). O Explorador, o «Guardar como» e os programas continuam a encontrá-la no mesmo sítio, e os ficheiros são enviados e podem ser libertados como os outros. Se a pasta estiver no OneDrive, os ficheiros são copiados de lá (e saem do OneDrive). «Deixar de guardar na NAS» devolve uma pasta vazia no sítio habitual, e os ficheiros ficam na NAS. O `nasyncloud unregister` devolve-as antes de remover o registo. Não existe no macOS: montar o NFS por cima da Secretária deixaria o Finder pendurado se o serviço morresse.
+
 ## 1.4.0 — 2026-11-13
 
 - **O computador não adormece a meio dos envios.** Enquanto há ficheiros por enviar e a NAS está acessível, o NASYNCLOUD impede a suspensão por inatividade (macOS: asserção `PreventUserIdleSystemSleep`, que também afasta o App Nap; Windows: `PowerRequestSystemRequired`). Quando acabam, o computador volta a poder suspender. Bloquear o ecrã nunca interrompeu os envios; fechar a tampa ou suspender à mão continua a suspender, e os envios retomam ao acordar. Com a NAS inacessível, ou com envios parados há 30 minutos, não segura o computador. Nova opção `prevent_sleep` (ligada por omissão), em Definições → Neste computador.
