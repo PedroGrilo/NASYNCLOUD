@@ -10,8 +10,9 @@
 //! * send local changes to the NAS (new and modified files, renames, deletes),
 //! * bring changes made on the NAS into the folder (polling).
 //!
-//! NOTE: this module is type-checked for Windows but, unlike the Linux/macOS
-//! engine, has not been exercised by the automated tests.
+//! It is written on a Mac, where it can only be type-checked. What runs it
+//! for real is `tests/e2e_windows.rs`, on the Windows runner of GitHub
+//! Actions (`.github/workflows/ci.yml`): change something here, look there.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -227,7 +228,14 @@ fn write_handle(path: &Path) -> std::io::Result<Placeholder> {
 fn inspect(path: &Path, len: u64) -> Result<Local> {
     let info = read_handle(path)?.info()?;
     Ok(match info {
-        Some(i) => Local { placeholder: true, in_sync: i.is_in_sync(), hydrated: i.on_disk_data_size().max(0) as u64 >= len, on_disk: i.on_disk_data_size().max(0) as u64, base: from_blob(i.blob()) },
+        Some(i) => {
+            let base = from_blob(i.blob());
+            // Windows goes on calling a file "in sync" after some changes (data
+            // added through a handle that can only append): a size that is not
+            // the one of the version we know is a change all the same.
+            let in_sync = i.is_in_sync() && base.as_ref().is_none_or(|b| b.size == len);
+            Local { placeholder: true, in_sync, hydrated: i.on_disk_data_size().max(0) as u64 >= len, on_disk: i.on_disk_data_size().max(0) as u64, base }
+        }
         None => Local { placeholder: false, in_sync: false, hydrated: true, on_disk: len, base: None },
     })
 }
@@ -241,6 +249,15 @@ fn hydrate(path: &Path) -> Result<()> {
 fn populated(path: &Path) -> bool {
     read_handle(path).ok().and_then(|p| p.state().ok().flatten()).is_some_and(|s| !s.partial_on_disk())
 }
+
+/// True for folders of the NAS that were never opened: Windows does not have
+/// their content yet.
+fn unopened(path: &Path) -> bool {
+    read_handle(path).ok().and_then(|p| p.state().ok().flatten()).is_some_and(|s| s.partial_on_disk())
+}
+
+/// "Cannot create a file when that file already exists."
+const ALREADY_EXISTS: u32 = 0x8007_00B7;
 
 impl Engine {
     /// Path relative to the sync folder, `/`-separated; `None` when outside it.
@@ -300,6 +317,66 @@ impl Engine {
         let out = f();
         self.own_listing.fetch_sub(1, Ordering::SeqCst);
         out
+    }
+
+    /// Makes sure Windows has what the NAS has in the folder `rel` and in the
+    /// folders above it. Windows asks for the content of a folder
+    /// (`fetch_placeholders`) when another program opens it, but not when it
+    /// is this process listing it: we then only see what is already on disk,
+    /// and a folder nobody opened in Explorer would look empty.
+    fn populate(&self, rel: &str) -> Result<()> {
+        self.populate_one("")?;
+        let mut dir = String::new();
+        for part in rel.split('/').filter(|s| !s.is_empty()) {
+            dir = remote::join(&dir, part);
+            self.populate_one(&dir)?;
+        }
+        Ok(())
+    }
+
+    /// One folder of `populate`. Nothing to do unless it was never opened.
+    fn populate_one(&self, rel: &str) -> Result<()> {
+        let dir = self.abs(rel);
+        // Without the NAS it stays unopened: what is already here is what there is.
+        if !unopened(&dir) || !self.online.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let entries = match self.net(self.remote.list(rel)) {
+            Ok(entries) => entries,
+            Err(RemoteError::NotFound) => Vec::new(), // gone on the NAS: the parent's next pass removes it
+            Err(e) => {
+                if e.is_offline() {
+                    self.online.store(false, Ordering::SeqCst);
+                }
+                bail!("cannot list {rel:?}: {e}")
+            }
+        };
+        self.known_dirs.lock().unwrap().insert(rel.to_string());
+        log::debug!("opening {rel:?} ourselves: {} item(s) on the NAS", entries.len());
+        for e in entries.iter().filter(|e| usable_name(&e.name) && !self.excludes.matches(&remote::join(rel, &e.name), e.is_dir)) {
+            // Already here: made on this computer, or put there by us.
+            if fs::symlink_metadata(dir.join(&e.name)).is_ok() {
+                continue;
+            }
+            if let Err(err) = create_info(e).create(&dir) {
+                log::debug!("could not create {}: {err}", e.name);
+            }
+        }
+        // An open folder like the others from now on: Windows will not ask
+        // for its content, and `poll_dir` keeps it in step with the NAS.
+        let mark = || -> Result<()> {
+            write_handle(&dir)?.update(UpdateOptions::default().has_no_children().mark_in_sync(), NO_USN)?;
+            Ok(())
+        };
+        match mark() {
+            Ok(()) => {
+                self.polled.lock().unwrap().insert(rel.to_string(), Instant::now());
+            }
+            // Windows then asks for the content when someone opens the
+            // folder, and finds everything there already.
+            Err(e) => log::debug!("could not mark {rel:?} as opened: {e:#}"),
+        }
+        Ok(())
     }
 
     /// Never sent to the NAS, nor brought from it: shell litter and the user's exclusions.
@@ -531,7 +608,10 @@ impl Engine {
             if self.stopping() {
                 return;
             }
-            // Enumerating makes Windows ask us for the folder's content if needed.
+            // A folder nobody opened yet has nothing in it until we list it.
+            if let Some(Err(e)) = self.rel(&d).map(|rel| self.populate_one(&rel)) {
+                log::warn!("could not open {}: {e:#}", d.display());
+            }
             let Ok(entries) = self.listing(|| fs::read_dir(&d).map(|it| it.flatten().collect::<Vec<_>>())) else { continue };
             for entry in entries {
                 if self.stopping() {
@@ -614,9 +694,11 @@ impl Engine {
                         // Changed on the NAS: new metadata, stale data dropped.
                         let identity = blob(&e.version);
                         // The one place that keeps the oplock: dropping data
-                        // needs the file to ourselves. While another program
-                        // has it open this fails, and the next pass tries again.
-                        let res = Placeholder::options().write_access().open(&path).and_then(|mut p| {
+                        // needs the file to ourselves (an exclusive handle:
+                        // with any other, Windows answers "the handle is
+                        // invalid"). While another program has it open this
+                        // fails, and the next pass tries again.
+                        let res = Placeholder::options().write_access().exclusive().open(&path).and_then(|mut p| {
                             p.update(UpdateOptions::default().metadata(metadata_for(e)).blob(&identity).dehydrate().mark_in_sync(), NO_USN)?;
                             if meta.file_attributes() & ATTR_PINNED != 0 {
                                 p.hydrate(..)?;
@@ -843,6 +925,7 @@ impl SyncFilter for Hooks {
             return Ok(());
         }
         let expected = from_blob(request.file_blob());
+        log::debug!("download of {rel}: bytes {start}..{end} of {size}");
         // Cancelled by `stop`: the program reading the file then gets an error.
         let res: Result<(), RemoteError> = eng.net(async {
             let mut dl = eng.remote.open_range(&rel, start, Some(end)).await?;
@@ -882,6 +965,7 @@ impl SyncFilter for Hooks {
             if !buf.is_empty() {
                 ticket.write_at(&buf, pos).map_err(api)?;
             }
+            log::debug!("downloaded {rel}: bytes {start}..{end}");
             Ok(())
         });
         res.map_err(|e| {
@@ -918,9 +1002,15 @@ impl SyncFilter for Hooks {
             }
         };
         eng.known_dirs.lock().unwrap().insert(rel.clone());
+        log::debug!("opening {rel:?}: {} item(s) on the NAS", entries.len());
+        let dir = eng.abs(&rel);
         let mut infos: Vec<PlaceholderCreateInfo> = entries
             .iter()
             .filter(|e| !eng.excludes.matches(&remote::join(&rel, &e.name), e.is_dir))
+            // Already here (made on this computer, or put there by us before
+            // anyone opened the folder): asking Windows to create it again
+            // fails the whole listing, every time the folder is opened.
+            .filter(|e| fs::symlink_metadata(dir.join(&e.name)).is_err())
             .filter(|e| {
                 let ok = usable_name(&e.name);
                 if !ok && !remote::is_part_file(&e.name) {
@@ -930,10 +1020,15 @@ impl SyncFilter for Hooks {
             })
             .map(create_info)
             .collect();
-        ticket.pass_with_placeholders(&mut infos).map_err(|e| {
-            log::warn!("could not populate {rel:?}: {e}");
-            CloudErrorKind::Unsuccessful
-        })
+        match ticket.pass_with_placeholders(&mut infos) {
+            Ok(()) => Ok(()),
+            // Something turned up in the meantime under one of the names: it is there, as asked.
+            Err(e) if e.code().0 as u32 == ALREADY_EXISTS && infos.iter().all(|i| i.result().map_or_else(|e| e.code().0 as u32 == ALREADY_EXISTS, |_| true)) => Ok(()),
+            Err(e) => {
+                log::warn!("could not populate {rel:?}: {e}");
+                Err(CloudErrorKind::Unsuccessful)
+            }
+        }
     }
 
     /// Something is about to be deleted: delete it on the NAS first.
@@ -1240,13 +1335,16 @@ impl Engine {
 impl Engine {
     fn browse(&self, rel: &str) -> Result<Listing> {
         let dir = self.abs(rel);
+        // Without the NAS, what is already here is what there is to show.
+        if let Err(e) = self.populate(rel) {
+            log::debug!("{e:#}");
+        }
         let meta = fs::metadata(&dir).with_context(|| format!("{rel}: not found"))?;
         if !meta.is_dir() {
             bail!("{rel} is not a folder");
         }
         let this = self.view(rel, &dir, &meta);
         let mut entries = Vec::new();
-        // Enumerating an unopened folder makes Windows ask us for its content.
         let items: Vec<fs::DirEntry> = self.listing(|| fs::read_dir(&dir).map(|it| it.flatten().collect()))?;
         for item in items {
             let name = item.file_name().to_string_lossy().into_owned();

@@ -111,6 +111,10 @@ Callbacks:
 
 A thread `nasyncloud-sync` tem a ligação e o ciclo de trabalho. Processa a fila depois de 2 s de acalmia: envia ficheiros novos ou modificados e converte-os em placeholders, e trata de fixar/desafixar. Sonda as pastas já abertas a cada `poll_interval`, ou a cada 15 s quando está offline. As operações feitas pelo próprio motor ficam marcadas em `ours`, para não voltarem como eco.
 
+O Windows só pede o conteúdo de uma pasta (`fetch_placeholders`) quando é outro programa a abri-la. Quando é o serviço que precisa dela (o explorador de ficheiros da interface, «Guardar na NAS», uma pasta fixada com sub-pastas por abrir), `Engine::populate` lista a NAS, cria os placeholders que faltam e marca a pasta como aberta, e daí em diante o `poll_dir` mantém-na a par da NAS como as outras. O `fetch_placeholders` só entrega ao Windows os nomes que ainda não existem no disco.
+
+Para ver o estado de um item, adotar uma pasta, marcar um ficheiro como enviado, hidratar e fixar usam-se handles normais (`read_handle`, `data_handle`, `write_handle`), que funcionam com o item aberto noutros programas. Só a troca do conteúdo de um ficheiro que mudou na NAS abre com oplock e em exclusivo (`CfOpenFileWithOplock`): largar dados exige o ficheiro só para o motor, e com ele aberto noutro programa fica para a volta seguinte. Um ficheiro só conta como sincronizado se o Windows o disser *e* tiver o tamanho da versão guardada no placeholder: há escritas (por handles que só acrescentam) que o Windows não assinala.
+
 ## Serviço e interface
 
 ### `logging.rs`
@@ -147,3 +151,29 @@ Proteções:
 ### `ui/index.html`
 
 HTML, CSS e JS sem build nem dependências. Rotas por hash: `#/`, `#/ficheiros/<caminho>`, `#/atividade`, `#/definicoes`. Na primeira abertura, o token chega no fragmento (`#t=…`), passa para o `localStorage` e é tirado do URL. Sondagens: estado a cada 2 s, registo a cada 2 s, listagem a cada 5 s na secção Ficheiros, e mais rápido durante alguns segundos depois de uma ação.
+
+## Testes
+
+- `cargo test`: testes unitários e de integração (`tests/webdav.rs`, `tests/vfs.rs`) contra um servidor WebDAV em memória (`tests/common/mod.rs`).
+- `tests/e2e.sh` (Linux e macOS): mount a sério (FUSE ou NFS) contra o rclone ou o `examples/fake_nas.rs`, mais a API da interface.
+- `tests/e2e_windows.rs` (Windows): o equivalente para o motor do Windows, como teste de integração do `cargo test`. Corre sozinho no runner `windows-latest` do GitHub Actions: em cada push para `main`, em cada pull request e à mão (`.github/workflows/ci.yml`), e antes de cada Release (`release.yml`). À mão, num Windows: `cargo build --example fake_nas && cargo test --test e2e_windows -- --nocapture`.
+
+O e2e do Windows arranca o `fake_nas` sobre uma pasta e o `nasyncloud serve` com uma configuração de teste (password por `NASYNCLOUD_PASSWORD`), tudo em `target/tmp/e2e-windows`, e verifica de três lados: o sistema de ficheiros (com a própria Cloud Files API a dizer se um item é um placeholder sincronizado), a API local (token do `ui.json`) e a pasta e o registo de pedidos do `fake_nas`. Como o `tests/e2e.sh`, corre todas as verificações e falha no fim se alguma falhou.
+
+Primeira parte, uma NAS normal (portas 5025 e 18750):
+
+- a interface lista o cimo e uma sub-pasta antes de qualquer outro programa abrir a pasta;
+- o que está na NAS aparece como placeholder (só online), sem descarregar nada, e o conteúdo chega ao ler;
+- ficheiros e pastas criados cá são enviados, criados na NAS e adotados (placeholder sincronizado, `cached` em `/api/browse`), sem ficarem em `info.errors`;
+- alterar ficheiros da NAS: acrescentar (com um handle que só acrescenta, num ficheiro só online e num já descarregado), escrever no início, substituir o conteúdo;
+- o mesmo que enviar e adotar com o item aberto por outro processo (o próprio teste): um ficheiro aberto com partilha total, aberto sem deixar escrever, com um bloqueio de bytes e sob um oplock exclusivo que o outro programa larga quando lho pedem; uma pasta vigiada como o Explorador faz (`ReadDirectoryChangesW`) e uma aberta sem deixar escrever;
+- alterações feitas na NAS por outros (ficheiro ou pasta novos, ficheiro alterado, ficheiro ou pasta apagados), «Libertar espaço» e «Manter sempre neste dispositivo» (também numa pasta que ninguém abriu, com sub-pastas), renomear, mover e apagar;
+- parar e voltar a arrancar: nada é enviado outra vez, não há cópias de conflito; `nasyncloud unregister`.
+
+Segunda parte, uma NAS com o cimo fechado como o da UGOS (`fake_nas --closed-top`, portas 5026 e 18751; só com `NASYNCLOUD_E2E_KNOWN_FOLDERS=1`, porque move o Ambiente de trabalho de quem corre o teste):
+
+- `GET /api/folders` oferece o cimo e as pastas da NAS; `POST /api/folders` com `place` vazio devolve `refused: true` sem mover nada nem criar nada, e o cimo deixa de ser oferecido;
+- com `place` igual a uma pasta da NAS, o Ambiente de trabalho passa para lá (`SHSetKnownFolderPath`, com o Explorador do runner a correr), o que lá estava é enviado e adotado, e a pasta da NAS continua a mostrar o que já tinha;
+- `on: false` devolve o Ambiente de trabalho ao sítio habitual, e os ficheiros ficam na NAS.
+
+O que não cobre: um Windows de cliente (o runner é um Windows Server 2025), a UGOS a sério, a app da bandeja e o instalador.

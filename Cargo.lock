@@ -2739,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "nasyncloud"
-version = "1.5.2"
+version = "1.5.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2776,7 +2776,7 @@ dependencies = [
 
 [[package]]
 name = "nasyncloud-desktop"
-version = "1.5.2"
+version = "1.5.3"
 dependencies = [
  "auto-launch",
  "directories",

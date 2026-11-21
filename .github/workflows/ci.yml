@@ -1,0 +1,51 @@
+name: CI
+
+# The Windows engine (src/win.rs, src/win/folders.rs) is written on a Mac,
+# where it can only be type-checked. Here it runs for real: `nasyncloud serve`
+# on a sync folder of the Cloud Files API, against examples/fake_nas.rs
+# (tests/e2e_windows.rs), on every push to main, on pull requests and by hand.
+# The Release workflow runs the same test before building the packages.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows (end to end)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # Lets the test move the Desktop of the runner's user onto the fake NAS
+      # (SHSetKnownFolderPath) and back. Fine here, where the machine is thrown
+      # away afterwards; never set it on a computer someone uses.
+      NASYNCLOUD_E2E_KNOWN_FOLDERS: 1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (the service, the fake NAS, the tests)
+        run: cargo build --locked --all-targets
+      - name: End-to-end test of the Windows engine
+        run: cargo test --locked --test e2e_windows -- --nocapture
+      - name: The other tests
+        run: cargo test --locked -- --skip windows_engine_end_to_end
+      - name: Logs of the end-to-end test
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-windows-logs
+          path: target/tmp/e2e-windows/*.log
+          if-no-files-found: ignore
