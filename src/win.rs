@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::windows::fs::MetadataExt as _;
+use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -189,25 +189,57 @@ struct Local {
     base: Option<Version>,
 }
 
-/// A plain write handle on a file, for placeholder updates. The oplock
-/// handles from `Placeholder::options().open` turn invalid (0x80070006) as
-/// soon as another program (an antivirus scanning a fresh .zip, Explorer)
-/// opens the file, which broke the update right after an upload.
-fn file_handle(path: &Path) -> Result<Placeholder> {
-    Ok(Placeholder::from(fs::OpenOptions::new().read(true).write(true).open(path)?))
+const FILE_READ_ATTRIBUTES: u32 = 0x0080;
+const WRITE_DAC: u32 = 0x0004_0000;
+const GENERIC_READ: u32 = 0x8000_0000;
+const GENERIC_WRITE: u32 = 0x4000_0000;
+/// Without it, a folder cannot be opened.
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+/// An ordinary handle on a file or folder, for the placeholder calls. The
+/// handles of `Placeholder::open` and `Placeholder::options()` ask for an
+/// oplock, and that fails with 0x800700AA ("the requested resource is in
+/// use") while another program has the item open: Explorer always has the
+/// Desktop, once it lives here, and what is on it. They also turn invalid
+/// (0x80070006) when another program opens the file afterwards (an antivirus
+/// scanning a fresh .zip), which broke the update right after an upload.
+fn plain_handle(path: &Path, access: u32) -> std::io::Result<Placeholder> {
+    Ok(Placeholder::from(fs::OpenOptions::new().access_mode(access).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path)?))
+}
+
+/// For asking about an item: in nobody's way, whoever has it open.
+fn read_handle(path: &Path) -> std::io::Result<Placeholder> {
+    plain_handle(path, FILE_READ_ATTRIBUTES)
+}
+
+/// For hydrating or (un)pinning. Read access; when another program has the
+/// item open in a way that excludes it, the right to change its permissions,
+/// which the platform accepts as well and no sharing mode can refuse.
+fn data_handle(path: &Path) -> std::io::Result<Placeholder> {
+    plain_handle(path, GENERIC_READ).or_else(|_| plain_handle(path, FILE_READ_ATTRIBUTES | WRITE_DAC))
+}
+
+/// For turning an item into a placeholder or updating one (see `data_handle`).
+fn write_handle(path: &Path) -> std::io::Result<Placeholder> {
+    plain_handle(path, GENERIC_READ | GENERIC_WRITE).or_else(|_| plain_handle(path, FILE_READ_ATTRIBUTES | WRITE_DAC))
 }
 
 fn inspect(path: &Path, len: u64) -> Result<Local> {
-    let info = Placeholder::open(path)?.info()?;
+    let info = read_handle(path)?.info()?;
     Ok(match info {
         Some(i) => Local { placeholder: true, in_sync: i.is_in_sync(), hydrated: i.on_disk_data_size().max(0) as u64 >= len, on_disk: i.on_disk_data_size().max(0) as u64, base: from_blob(i.blob()) },
         None => Local { placeholder: false, in_sync: false, hydrated: true, on_disk: len, base: None },
     })
 }
 
+/// Downloads the whole of a placeholder file.
+fn hydrate(path: &Path) -> Result<()> {
+    Ok(data_handle(path)?.hydrate(..)?)
+}
+
 /// True for folders whose children have all been materialised.
 fn populated(path: &Path) -> bool {
-    Placeholder::open(path).ok().and_then(|p| p.state().ok().flatten()).is_some_and(|s| !s.partial_on_disk())
+    read_handle(path).ok().and_then(|p| p.state().ok().flatten()).is_some_and(|s| !s.partial_on_disk())
 }
 
 impl Engine {
@@ -400,7 +432,11 @@ impl Engine {
                     self.ensure_parents(&rel).await?;
                     self.make_dir(&rel).await
                 })?;
-                Placeholder::options().write_access().open(path)?.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(blob(&Version::default())), NO_USN)?;
+                let adopt = || -> Result<()> {
+                    write_handle(path)?.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(blob(&Version::default())), NO_USN)?;
+                    Ok(())
+                };
+                adopt().context("the folder is on the NAS, but Windows would not take it as a synced folder")?;
                 log::info!("created folder {rel} on the NAS");
                 // Whatever was put in it before we got here needs a look too.
                 for child in fs::read_dir(path)?.flatten() {
@@ -416,19 +452,19 @@ impl Engine {
             // Content unchanged; only the pin state may need acting upon.
             if attrs & ATTR_PINNED != 0 && !local.hydrated {
                 // "Always keep on this device"
-                Placeholder::open(path)?.hydrate(..)?;
+                hydrate(path)?;
             } else if attrs & ATTR_UNPINNED != 0 && local.hydrated && meta.len() > 0 {
                 // "Free up space": drop the data, then clear the request so
                 // the file may be opened (and kept) again later.
                 fs::OpenOptions::new().write(true).open(path)?.dehydrate(..)?;
-                Placeholder::options().write_access().open(path)?.mark_pin(PinState::Unspecified, PinOptions::default())?;
+                write_handle(path)?.mark_pin(PinState::Unspecified, PinOptions::default())?;
             }
             return Ok(());
         }
 
         // New or modified file: send it.
         if !local.hydrated {
-            Placeholder::open(path)?.hydrate(..)?;
+            hydrate(path)?;
         }
         let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or_else(unix_now, |d| d.as_secs() as i64);
         let outcome = self.net(async {
@@ -457,13 +493,18 @@ impl Engine {
             self.enqueue(path.to_path_buf(), SETTLE);
             return Ok(());
         }
-        let mut ph = file_handle(path)?;
         let identity = blob(&version);
-        if local.placeholder {
-            ph.update(UpdateOptions::default().mark_in_sync().blob(&identity), NO_USN)?;
-        } else {
-            ph.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(identity), NO_USN)?;
-        }
+        let mark = || -> Result<()> {
+            let mut ph = write_handle(path)?;
+            if local.placeholder {
+                ph.update(UpdateOptions::default().mark_in_sync().blob(&identity), NO_USN)?;
+            } else {
+                ph.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(identity.clone()), NO_USN)?;
+            }
+            Ok(())
+        };
+        // The next try finds it on the NAS already, and only does this again.
+        mark().context("sent to the NAS, but Windows would not mark it as synced")?;
         log::info!("uploaded {rel} ({})", nasyncloud::config::format_size(meta.len()));
         Ok(())
     }
@@ -503,8 +544,8 @@ impl Engine {
                 if meta.is_dir() {
                     stack.push(path);
                 } else if inspect(&path, meta.len()).is_ok_and(|l| l.placeholder && l.in_sync && !l.hydrated) {
-                    if let Err(e) = Placeholder::open(&path).and_then(|mut p| p.hydrate(..)) {
-                        log::warn!("could not download {}: {e}", path.display());
+                    if let Err(e) = hydrate(&path) {
+                        log::warn!("could not download {}: {e:#}", path.display());
                     }
                 }
             }
@@ -572,6 +613,9 @@ impl Engine {
                     } else if local.in_sync && !local.base.as_ref().is_some_and(|b| b.same(&e.version)) {
                         // Changed on the NAS: new metadata, stale data dropped.
                         let identity = blob(&e.version);
+                        // The one place that keeps the oplock: dropping data
+                        // needs the file to ourselves. While another program
+                        // has it open this fails, and the next pass tries again.
                         let res = Placeholder::options().write_access().open(&path).and_then(|mut p| {
                             p.update(UpdateOptions::default().metadata(metadata_for(e)).blob(&identity).dehydrate().mark_in_sync(), NO_USN)?;
                             if meta.file_attributes() & ATTR_PINNED != 0 {
@@ -606,8 +650,8 @@ impl Engine {
             match create_info(e).create(&dir) {
                 Ok(_) if pinned_dir && !e.is_dir => {
                     let path = dir.join(&e.name);
-                    if let Err(err) = Placeholder::open(&path).and_then(|mut p| p.hydrate(..)) {
-                        log::warn!("could not download {}: {err}", path.display());
+                    if let Err(err) = hydrate(&path) {
+                        log::warn!("could not download {}: {err:#}", path.display());
                     }
                 }
                 Ok(_) => {}
@@ -1253,7 +1297,7 @@ impl Engine {
         if path.is_dir() {
             opts.recurse();
         }
-        let mut ph = Placeholder::options().write_access().open(&path)?;
+        let mut ph = write_handle(&path)?;
         // Recursive pinning may make Windows open folders on our behalf.
         self.listing(|| ph.mark_pin(if on { PinState::Pinned } else { PinState::Unspecified }, opts))?;
         if on {
@@ -1270,7 +1314,7 @@ impl Engine {
         if path.is_dir() {
             opts.recurse();
         }
-        let mut ph = Placeholder::options().write_access().open(&path)?;
+        let mut ph = write_handle(&path)?;
         self.listing(|| ph.mark_pin(PinState::Unspecified, opts))?;
         let mut freed = 0;
         let mut stack = vec![path];

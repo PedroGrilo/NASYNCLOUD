@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2 — 2026-11-21
+
+- **Windows: o que está no Ambiente de trabalho já não fica por enviar com «O recurso pedido está a ser utilizado. (0x800700AA)».** O motor abria ficheiros e pastas pedindo um «oplock» ao Windows, que o recusa enquanto outro programa tiver o item aberto, e o Explorador tem sempre aberto o Ambiente de trabalho e o que lá está. Agora usa handles normais para ver o estado de um item, para adotar uma pasta, para marcar um ficheiro como enviado e para «Manter sempre neste dispositivo» e «Libertar espaço». Só a troca do conteúdo de um ficheiro que mudou na NAS continua a precisar do ficheiro livre, e volta a tentar na volta seguinte.
+- Windows: «Guardar na NAS» cria logo a pasta como pasta sincronizada, em vez de a converter depois de o Windows já a estar a usar.
+- Windows: estes erros passam a dizer em que passo falhou (a adotar a pasta, ou a marcar um ficheiro que já foi enviado).
+
 ## 1.5.1 — 2026-11-21
 
 - **Windows: «Guardar na NAS» já não deixa o Ambiente de trabalho, os Documentos ou as Imagens num sítio onde a NAS não os aceita.** Com o endereço da NAS inteira (`http://IP:5005/`, sem o nome de uma pasta partilhada), o cimo da pasta da NAS é só a lista das pastas partilhadas da UGOS, e a NAS responde «405 Method Not Allowed» a quem tenta criar lá uma pasta. A 1.5.0 punha lá a pasta à mesma: nada era enviado e os Problemas enchiam-se de «refused by the server: HTTP 405 Method Not Allowed». Agora:

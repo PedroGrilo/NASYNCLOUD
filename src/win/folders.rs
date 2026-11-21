@@ -17,7 +17,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
-use nasyncloud::remote;
+use nasyncloud::remote::{self, Entry, Version};
 use serde::Serialize;
 use windows_sys::core::{GUID, PWSTR};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
@@ -25,7 +25,7 @@ use windows_sys::Win32::UI::Shell::{
     SHChangeNotify, SHGetKnownFolderPath, SHSetKnownFolderPath, FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Pictures, KF_FLAG_DEFAULT_PATH, KF_FLAG_DONT_VERIFY, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
 };
 
-use super::{clean, inspect, refusal, unix_now, Engine};
+use super::{clean, create_info, inspect, refusal, unix_now, Engine};
 
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
@@ -259,11 +259,16 @@ impl Engine {
             return Ok(report);
         }
         if !to.is_dir() {
-            match fs::create_dir(&to) {
-                Ok(()) => {}
-                // The worker saw it on the NAS first.
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && to.is_dir() => {}
-                Err(e) => return Err(e).with_context(|| format!("cannot create {}", to.display())),
+            // A synced folder from the start (the NAS has it already), so that
+            // nothing has to be converted once Windows uses it: Explorer
+            // never lets go of the Desktop.
+            let entry = Entry { name: k.name.to_string(), is_dir: true, version: Version { mtime: unix_now(), ..Default::default() } };
+            if let Err(e) = create_info(&entry).create(self.abs(place)) {
+                // (Unless the worker saw it on the NAS first.)
+                if !to.is_dir() {
+                    log::warn!("could not create {} as a synced folder ({e}); creating an ordinary one", to.display());
+                    fs::create_dir(&to).with_context(|| format!("cannot create {}", to.display()))?;
+                }
             }
         }
         if inspect(&to, 0).is_ok_and(|l| !l.placeholder) {
