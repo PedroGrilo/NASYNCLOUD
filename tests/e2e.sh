@@ -173,6 +173,19 @@ nd status | grep -q UNREACHABLE && ok "status reports offline, $(nd status | gre
 start_nas
 waitfor 25 sh -c "grep -qx 'escrito offline' $NAS/Docs/offline.txt && test -f $NAS/Docs/pasta-offline/x" && ok "queued changes are sent when the NAS is back" || bad "resume after offline" "$(nd status; tail -5 $W/nasyncloud.log)"
 
+echo "== conflicts"
+stop_nas; sleep 0.5
+echo "editado aqui" > $MNT/Docs/sub/nota.txt
+echo "editado na NAS ao mesmo tempo" > $NAS/Docs/sub/nota.txt
+start_nas
+waitfor 25 sh -c "ls $NAS/Docs/sub | grep -q 'nota (conflict '" && ok "a file changed on both sides keeps both versions" || bad "conflict copy" "$(ls $NAS/Docs/sub; tail -5 $W/nasyncloud.log)"
+cid=$(j $API/api/conflicts | python3 -c "import json,sys;c=json.load(sys.stdin)['conflicts'];print(c[0]['id'] if len(c)==1 and c[0]['path']=='Docs/sub/nota.txt' else '')")
+test -n "$cid" && ok "the interface lists the conflict" || bad "conflict list" "$(j $API/api/conflicts)"
+out=$(j -X POST -H 'content-type: application/json' -d "{\"id\":${cid:-0},\"keep\":\"mine\"}" $API/api/conflicts)
+echo "$out" | grep -q '"outcome":"done"' && ok "keeping the version from this computer" || bad "resolve conflict" "$out"
+waitfor 8 sh -c "grep -qx 'editado aqui' $NAS/Docs/sub/nota.txt && ! ls $NAS/Docs/sub | grep -q conflict" && ok "it replaces the NAS one, and the copy goes away" || bad "after resolving" "$(ls $NAS/Docs/sub; cat $NAS/Docs/sub/nota.txt)"
+check "no conflicts left" test "$(j $API/api/conflicts)" = '{"conflicts":[]}'
+
 echo "== restart"
 pkill -INT -x nasyncloud; waitfor 15 sh -c '! pgrep -x nasyncloud' && ok "Ctrl+C unmounts and exits" || bad "shutdown" "$(tail -5 $W/nasyncloud.log)"
 unmounted_and_empty(){ not_mounted && test -z "$(ls -A $MNT 2>&1)"; }
@@ -182,6 +195,6 @@ nd status $MNT/Docs | grep -q "pinned" && ok "pins survive a restart" || bad "pi
 cat $MNT/Docs/numeros.txt > /dev/null; grep -q "GET /Docs/numeros" $W/nas.log && bad "cached file was downloaded again after restart" || ok "cache survives a restart (no new download)"
 pkill -INT -x nasyncloud; waitfor 15 sh -c '! pgrep -x nasyncloud'; stop_nas
 ls $NAS/Docs | grep -q conflict && bad "spurious conflict copy" "$(ls $NAS/Docs)" || ok "no spurious conflict copies"
-grep -hE "panicked|ERROR|WARN" $W/nasyncloud1.log $W/nasyncloud.log | grep -v "unreachable, working offline" | head -8
+grep -hE "panicked|ERROR|WARN" $W/nasyncloud1.log $W/nasyncloud.log | grep -v "unreachable, working offline" | grep -v "changed both here and on the NAS" | head -8
 echo "== $pass passed, $fail failed"
 [ $fail = 0 ]

@@ -433,7 +433,10 @@ impl Vfs {
                 if let Some(cur) = self.net(self.remote.stat(&path).await)? {
                     let ours = !cur.is_dir && base.as_ref().is_some_and(|b| b.same(&cur.version));
                     if !ours {
-                        self.make_conflict_copy(id)?;
+                        let (copy, size, mtime) = self.make_conflict_copy(id)?;
+                        if !cur.is_dir {
+                            self.conflicts.add(&path, &copy, size, mtime, cur.version, unix_now());
+                        }
                         continue;
                     }
                 }
@@ -610,7 +613,8 @@ impl Vfs {
 
     /// The file changed both here and on the server. Keep both: the local
     /// version gets a new name, the server's version reappears under the old one.
-    fn make_conflict_copy(&self, id: NodeId) -> Result<()> {
+    /// Returns the new path, and the size and date of the local version.
+    fn make_conflict_copy(&self, id: NodeId) -> Result<(String, u64, i64)> {
         let mut guard = self.st();
         let st = &mut *guard;
         let (parent, old) = {
@@ -631,8 +635,9 @@ impl Vfs {
         n.remote = None;
         n.dirty = true;
         n.overwrite_ok = false;
+        let (size, mtime) = (n.size, n.mtime);
         st.touch(id);
         log::warn!("{old:?} changed both here and on the NAS; keeping the local version as {new:?}");
-        Ok(())
+        Ok((st.path(id).unwrap_or_default(), size, mtime))
     }
 }

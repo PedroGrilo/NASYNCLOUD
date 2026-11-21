@@ -76,6 +76,23 @@ body:not(.shell) .panel{width:360px;height:560px}
 .bar span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--indigo-2),var(--amber))}
 .link{border:0;background:none;color:var(--indigo);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;padding:4px 2px}
 .link:hover{color:#a5b4fc}
+.banner .row{display:flex;flex-wrap:wrap;gap:6px}
+.banner button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line-hi);color:var(--text);font-weight:500}
+.cf{margin:2px 0 4px;padding:10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(251,191,36,.22)}
+.cf .item{padding:0;cursor:pointer}.cf .item:hover{background:none}
+.cf.closed{background:none;border-color:transparent}.cf.closed:hover{background:rgba(255,255,255,.05)}
+.cf .item .ib.sm{opacity:1}
+.vers{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.ver{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.04);font-size:12px;color:#c4c8e6}
+.ver span:nth-child(2){flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ver .sz{color:var(--muted)}
+.tag{font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:5px;white-space:nowrap}
+.tag.mine{background:rgba(129,140,248,.18);color:#a5b4fc}.tag.nas{background:rgba(52,211,153,.15);color:#6ee7b7}
+.picks{display:flex;gap:6px;margin-top:10px}
+.picks button{flex:1;padding:6px 8px;border-radius:7px;border:1px solid var(--line-hi);background:rgba(255,255,255,.08);color:var(--text);font:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+.picks button.main{background:var(--indigo-2);border-color:var(--indigo-2);color:#fff}
+.picks button.both{flex:none;background:none;border-color:transparent;color:var(--muted)}
+.picks button:hover{filter:brightness(1.12)}.picks button:disabled{opacity:.5;cursor:default;filter:none}
 .list::-webkit-scrollbar{width:8px}.list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px;border:2px solid transparent;background-clip:padding-box}
 </style>
 </head>
@@ -121,6 +138,8 @@ const ICONS = {
   cloudOff: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96 6 6 0 0 1 1.9-3.2"/><path d="M11 3.9A6 6 0 0 1 17.9 8.6a4.6 4.6 0 0 1 2.6 7.4"/><path d="M17 18.5H8"/><path d="M3 3l18 18"/>',
   history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   download: '<path d="M12 4.5V15"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
+  diff: '<path d="M7 4v11"/><path d="M4 7l3-3 3 3"/><path d="M17 20V9"/><path d="M14 17l3 3 3-3"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
 };
 const $ = s => document.querySelector(s);
 
@@ -218,13 +237,17 @@ function openPath(rel) {
 
 let S = null;        // /api/state, null when the service does not answer
 let T = [];          // /api/transfers
+let C = [];          // /api/conflicts
+let openId = null;   // the conflict shown in full (the first one by default)
+let busyId = null;   // the conflict being resolved right now
 let locked = false;  // wrong or missing token
-let flashMsg = '', flashUntil = 0;
+let flashMsg = '', flashKind = 'err', flashUntil = 0;
 let lastSig = '';
 
-function flash(msg) {
+function flash(msg, kind) {
   flashMsg = msg;
-  flashUntil = Date.now() + 5000;
+  flashKind = kind || 'err';
+  flashUntil = Date.now() + (kind === 'warn' ? 9000 : 5000);
   render();
 }
 
@@ -237,6 +260,7 @@ function status() {
   if (S.phase === 'stopping') return ['busy', 'A parar…'];
   if (S.phase !== 'running') return ['warn', 'Sincronização em pausa'];
   if (S.info && !S.info.online) return ['warn', 'NAS inacessível · a trabalhar offline'];
+  if (C.length) return ['warn', `${plural(C.length, 'conflito', 'conflitos')} por resolver`];
   if (active.length) {
     const up = active.filter(t => t.direction === 'upload').length, down = active.length - up;
     if (up && down) return ['busy', `A sincronizar ${plural(active.length, 'ficheiro', 'ficheiros')}`];
@@ -250,7 +274,7 @@ function banner() {
   // [kind, children] for the banner element.
   const b = (kind, ic, text, button, onclick) =>
     [kind, [icon(ic), h('div', null, text, button ? h('div', null, h('button', { type: 'button', onclick }, button)) : null)]];
-  if (Date.now() < flashUntil) return b('err', 'alert', flashMsg);
+  if (Date.now() < flashUntil) return b(flashKind, 'alert', flashMsg);
   // Set by the desktop app when it finds a newer version.
   const up = window.__nasyncloudUpdate;
   if (up && up.state === 'downloading') return b('info', 'download', `A descarregar a versão ${up.version}… ${up.progress || 0}%`);
@@ -262,6 +286,15 @@ function banner() {
   if (S.error) return b('err', 'alert', S.error);
   if (S.phase === 'stopped') return b('info', 'pause', 'A pasta da NAS não está montada.', 'Retomar', () => act('/api/mount'));
   if (up && up.state === 'available') return b('info', 'download', `Está disponível a versão ${up.version} do NASYNCLOUD.`, 'Atualizar agora', () => app('update'));
+  if (C.length) {
+    const row = C.length > 1 && busyId == null ? h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'ghost', onclick: () => resolveAll('mine') }, 'Todas: a minha'),
+      h('button', { type: 'button', class: 'ghost', onclick: () => resolveAll('nas') }, 'Todas: a da NAS')) : null;
+    const text = C.length === 1
+      ? 'Este ficheiro mudou aqui e na NAS. Ficaram as duas versões até escolheres; nada se perdeu.'
+      : 'Estes ficheiros mudaram aqui e na NAS. Ficaram as duas versões até escolheres; nada se perdeu.';
+    return ['warn', [icon('diff'), h('div', null, text, row)]];
+  }
   const errs = S.info ? S.info.errors.length : 0;
   if (errs) return b('warn', 'alert', `${plural(errs, 'ficheiro tem', 'ficheiros têm')} problemas a sincronizar.`, 'Ver', () => openMain(''));
   return null;
@@ -301,6 +334,80 @@ function item(t) {
   return h('div', { class: 'item', title: 'Abrir ' + name, onclick: () => openPath(t.path) }, fi, meta, loc);
 }
 
+const timeFmt = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit' });
+function when(s) {
+  if (!s) return '';
+  const d = new Date(s * 1000), today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'hoje ' + timeFmt.format(d);
+  if (d.toDateString() === yesterday.toDateString()) return 'ontem ' + timeFmt.format(d);
+  return dateFmt.format(d) + ' ' + timeFmt.format(d);
+}
+
+function conflictCard(c) {
+  const name = c.path.split('/').pop();
+  const folder = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : '';
+  const ext = name.includes('.') ? name.split('.').pop().slice(0, 4).toUpperCase() : '';
+  const open = c.id === openId, busy = busyId != null;
+  const here = S && S.platform === 'macos' ? 'Este Mac' : 'Este computador';
+  const eye = h('button', { class: 'ib sm', type: 'button', title: 'Abrir as duas versões', 'aria-label': 'Abrir as duas versões',
+    onclick: ev => { ev.stopPropagation(); openPath(c.copy); openPath(c.path); } }, icon('eye'));
+  const sub = open ? (folder || 'Pasta da NAS') : `${folder ? folder + ' · ' : ''}a tua de ${when(c.mine_mtime)}, a da NAS de ${when(c.nas.mtime)}`;
+  const head = h('div', { class: 'item', title: c.path, onclick: () => { openId = open ? null : c.id; render(); } },
+    h('div', { class: 'fi ' + kindOf(ext) }, ext || '···'),
+    h('div', { class: 'meta' }, h('div', { class: 'name' }, name), h('div', { class: 'sub', title: sub }, sub)),
+    eye);
+  if (!open) return h('div', { class: 'cf closed' }, head);
+  const ver = (cls, label, where, bytes) => h('div', { class: 'ver' }, h('span', { class: 'tag ' + cls }, label), h('span', null, where), h('span', { class: 'sz' }, size(bytes)));
+  const pick = (keep, label, cls) => h('button', { type: 'button', class: cls || null, disabled: busy, onclick: () => resolve(c, keep) }, label);
+  return h('div', { class: 'cf' }, head,
+    h('div', { class: 'vers' },
+      ver('mine', 'A minha', `${here} · ${when(c.mine_mtime)}`, c.mine_size),
+      ver('nas', 'A da NAS', `NAS · ${when(c.nas.mtime)}`, c.nas.size)),
+    h('div', { class: 'picks' },
+      pick('mine', busyId === c.id ? 'A tratar…' : 'Ficar com a minha', 'main'),
+      pick('nas', 'Ficar com a da NAS'),
+      pick('both', 'As duas', 'both')));
+}
+
+// What each answer of POST /api/conflicts means for the person.
+function said(c, outcome) {
+  const name = '«' + c.path.split('/').pop() + '»';
+  if (outcome === 'changed') return `A versão de ${name} na NAS mudou outra vez. Vê as datas e escolhe de novo.`;
+  if (outcome === 'sending') return `A tua versão de ${name} ainda está a ser enviada para a NAS. Tenta daqui a pouco.`;
+  if (outcome === 'nas_gone') return `${name} já não existe na NAS. Para a manteres, escolhe «Ficar com a minha».`;
+  return '';
+}
+
+async function resolve(c, keep) {
+  if (busyId != null) return;
+  busyId = c.id; render();
+  try {
+    const r = await api('/api/conflicts', { id: c.id, keep });
+    const msg = said(c, r.outcome);
+    if (msg) flash(msg, 'warn');
+    else if (openId === c.id) openId = null;
+  } catch (e) { flash(e.message); }
+  busyId = null;
+  await poll();
+}
+
+async function resolveAll(keep) {
+  if (busyId != null) return;
+  const todo = C.slice();
+  const left = [];
+  for (const c of todo) {
+    busyId = c.id; render();
+    try {
+      const r = await api('/api/conflicts', { id: c.id, keep });
+      if (said(c, r.outcome)) left.push(c);
+    } catch (e) { left.push(c); }
+  }
+  busyId = null;
+  if (left.length) flash(`${plural(left.length, 'ficheiro ficou', 'ficheiros ficaram')} por resolver: ${left.map(c => c.path.split('/').pop()).join(', ')}. Abre cada um para ver porquê.`, 'warn');
+  await poll();
+}
+
 function render() {
   const [kind, text] = status();
   $('#dot').className = 'dot ' + kind;
@@ -326,14 +433,16 @@ function render() {
   }
 
   // Only rebuild the list when something changed (keeps hover and scroll steady).
-  const sig = JSON.stringify(T) + '|' + Math.floor(Date.now() / 30000);
+  if (openId != null && !C.some(c => c.id === openId)) openId = null;
+  if (openId == null && C.length) openId = C[0].id;
+  const sig = JSON.stringify([T, C, openId, busyId]) + '|' + Math.floor(Date.now() / 30000);
   if (sig === lastSig) return;
   lastSig = sig;
   const list = $('#list'), empty = $('#empty');
   const active = T.filter(t => t.active > 0), recent = T.filter(t => t.active === 0).slice(0, 40);
-  empty.hidden = T.length > 0;
-  list.hidden = T.length === 0;
-  if (!T.length) {
+  empty.hidden = T.length + C.length > 0;
+  list.hidden = T.length + C.length === 0;
+  if (!T.length && !C.length) {
     const offline = S && S.info && !S.info.online;
     $('#empty-icon').replaceChildren(icon(offline ? 'cloudOff' : 'history'));
     $('#empty-title').textContent = offline ? 'Sem ligação à NAS' : 'Ainda não há atividade';
@@ -344,6 +453,8 @@ function render() {
     return;
   }
   list.replaceChildren(...[
+    C.length ? h('h3', null, 'Conflitos') : null,
+    ...C.map(conflictCard),
     active.length ? h('h3', null, 'Em curso') : null,
     ...active.map(item),
     recent.length ? h('h3', null, 'Recentes') : null,
@@ -360,10 +471,10 @@ let timer = 0;
 async function poll() {
   clearTimeout(timer);
   try {
-    const [s, t] = await Promise.all([api('/api/state'), api('/api/transfers')]);
-    S = s; T = t.transfers || []; locked = false;
+    const [s, t, c] = await Promise.all([api('/api/state'), api('/api/transfers'), api('/api/conflicts')]);
+    S = s; T = t.transfers || []; C = c.conflicts || []; locked = false;
   } catch (e) {
-    S = null; T = []; locked = e instanceof Unauthorized;
+    S = null; T = []; C = []; locked = e instanceof Unauthorized;
   }
   render();
   // Quick while visible, slow while the panel is hidden.

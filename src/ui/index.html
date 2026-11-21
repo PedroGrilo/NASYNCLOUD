@@ -117,6 +117,8 @@ main{min-width:0;padding:6px 4px 40px}
 .hero-actions{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:1}
 .banner{padding:14px 18px;border-radius:14px;margin-bottom:20px;border:1px solid;display:flex;gap:12px;align-items:flex-start;overflow-wrap:anywhere}
 .banner.err{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.3);color:#fecaca}
+.banner.warn{background:rgba(245,158,11,.1);border-color:rgba(251,191,36,.3);color:#fde68a;align-items:center}
+#st-conflicts-text{flex:1}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-bottom:20px}
 .card{padding:20px 22px}
 .card-head{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:600;font-size:14px;margin-bottom:12px}
@@ -319,6 +321,7 @@ details.card[open]>summary{margin-bottom:16px}
         </div>
       </div>
       <div class="banner err" id="st-error" data-icon="alert" hidden><span id="st-error-text"></span></div>
+      <div class="banner warn" id="st-conflicts" data-icon="alert" hidden><span id="st-conflicts-text"></span><button class="btn sm" id="btn-conflicts" type="button">Escolher</button></div>
       <div class="cards">
         <div class="card glass"><div class="card-head" data-icon="drive">Espaço neste computador</div><div class="big" id="cache-big">—</div><div class="bar"><span id="cache-bar"></span></div><p class="muted small" id="cache-note"></p></div>
         <div class="card glass"><div class="card-head" data-icon="upload">Por enviar para a NAS</div><div class="big" id="pend-big">—</div><p class="muted small" id="pend-note"></p></div>
@@ -623,6 +626,11 @@ function renderState() {
 
   $('#st-error').hidden = !S.error;
   $('#st-error-text').textContent = S.error || '';
+  const conflicts = info ? info.conflicts || 0 : 0;
+  $('#st-conflicts').hidden = !conflicts;
+  $('#st-conflicts-text').textContent = conflicts === 1
+    ? 'Um ficheiro mudou aqui e na NAS. Ficaram as duas versões até escolheres com qual ficas.'
+    : `${conflicts} ficheiros mudaram aqui e na NAS. Ficaram as duas versões até escolheres com quais ficas.`;
 
   if (info) {
     if (info.cache_max != null) {
@@ -652,6 +660,12 @@ function renderState() {
   badge.hidden = !pending;
   badge.textContent = pending;
 }
+
+// The choice is made in the panel: the app's own (next to the tray icon), or the page in a tab.
+$('#btn-conflicts').addEventListener('click', () => {
+  if (shellAutostart !== null) location.href = '/app/panel';
+  else window.open('/panel', '_blank');
+});
 
 $('#btn-toggle').addEventListener('click', async () => {
   if (!S) return;
