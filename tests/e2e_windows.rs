@@ -242,8 +242,8 @@ struct Service {
 }
 
 impl Service {
-    fn start(dir: &Path, name: &str, nas_url: &str, ui_port: u16) -> Result<Self, String> {
-        let root = dir.join(format!("mnt-{name}"));
+    /// Settings, cache and log go in `dir`; `root` is the sync folder.
+    fn start(dir: &Path, name: &str, root: PathBuf, nas_url: &str, ui_port: u16) -> Result<Self, String> {
         let cfg = dir.join(format!("cfg-{name}")).join("config.toml");
         let log = dir.join(format!("service-{name}.log"));
         fs::create_dir_all(cfg.parent().expect("has a parent")).map_err(|e| e.to_string())?;
@@ -391,6 +391,73 @@ fn hold_byte_lock(path: &Path) -> Result<Held, String> {
     Ok(Box::new(file))
 }
 
+/// A program holding an exclusive oplock on the file, which lets go of it as
+/// soon as someone else needs the content (what indexers and antivirus do).
+/// `CfOpenFileWithOplock` will not disturb it: it fails with 0x80070322, for
+/// as long as nobody else opens the file.
+struct Oplock {
+    handle: usize,
+    pending: usize,
+    waiter: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Oplock {
+    fn drop(&mut self) {
+        // Still held (nobody needed the file): give the request up. It names
+        // our own OVERLAPPED, so nothing else can be cancelled by mistake.
+        // SAFETY: the OVERLAPPED is never freed.
+        unsafe { windows_sys::Win32::System::IO::CancelIoEx(self.handle as _, self.pending as *const _) };
+        if let Some(waiter) = self.waiter.take() {
+            let _ = waiter.join();
+        }
+    }
+}
+
+fn hold_oplock(path: &Path) -> Result<Held, String> {
+    use windows_sys::Win32::System::Ioctl::{FSCTL_REQUEST_OPLOCK, OPLOCK_LEVEL_CACHE_HANDLE, OPLOCK_LEVEL_CACHE_READ, OPLOCK_LEVEL_CACHE_WRITE, REQUEST_OPLOCK_CURRENT_VERSION, REQUEST_OPLOCK_INPUT_BUFFER, REQUEST_OPLOCK_INPUT_FLAG_REQUEST};
+    use windows_sys::Win32::System::IO::{DeviceIoControl, GetOverlappedResult, OVERLAPPED};
+    const ERROR_IO_PENDING: i32 = 997;
+    let size = std::mem::size_of::<REQUEST_OPLOCK_INPUT_BUFFER>();
+    let mut last = String::new();
+    // Granted only while nobody else has the file open: a scanner looking at
+    // the new file for a moment is waited out.
+    for _ in 0..20 {
+        let file = open_as(path, GENERIC_READ, SHARE_ALL, FILE_FLAG_OVERLAPPED)?;
+        // The system writes to these when the oplock breaks: never freed.
+        let input: &'static REQUEST_OPLOCK_INPUT_BUFFER = Box::leak(Box::new(REQUEST_OPLOCK_INPUT_BUFFER {
+            StructureVersion: REQUEST_OPLOCK_CURRENT_VERSION as u16,
+            StructureLength: size as u16,
+            RequestedOplockLevel: OPLOCK_LEVEL_CACHE_READ | OPLOCK_LEVEL_CACHE_HANDLE | OPLOCK_LEVEL_CACHE_WRITE,
+            Flags: REQUEST_OPLOCK_INPUT_FLAG_REQUEST,
+        }));
+        let output: &'static mut [u8; 64] = Box::leak(Box::new([0; 64]));
+        // SAFETY: an all-zero OVERLAPPED is a valid one.
+        let pending: &'static mut OVERLAPPED = Box::leak(Box::new(unsafe { std::mem::zeroed() }));
+        let pending_at = pending as *mut OVERLAPPED as usize;
+        // SAFETY: the buffers and the OVERLAPPED live for the rest of the process.
+        let ok = unsafe { DeviceIoControl(file.as_raw_handle(), FSCTL_REQUEST_OPLOCK, (input as *const REQUEST_OPLOCK_INPUT_BUFFER).cast(), size as u32, output.as_mut_ptr().cast(), output.len() as u32, std::ptr::null_mut(), pending) };
+        let error = std::io::Error::last_os_error();
+        if ok == 0 && error.raw_os_error() == Some(ERROR_IO_PENDING) {
+            let handle = file.as_raw_handle() as usize;
+            let waiter = std::thread::spawn(move || {
+                let mut bytes = 0u32;
+                // Returns when the oplock breaks (someone else opens the file) or the request is cancelled.
+                // SAFETY: `file` is open until the end of this thread; the OVERLAPPED is never freed.
+                let broken = unsafe { GetOverlappedResult(handle as _, pending_at as *const OVERLAPPED, &mut bytes, 1) } != 0;
+                if broken {
+                    println!("       (the oplock was broken: another program needed the file, and the holder lets go)");
+                }
+                drop(file); // closing the handle acknowledges the break
+            });
+            return Ok(Box::new(Oplock { handle, pending: pending_at, waiter: Some(waiter) }));
+        }
+        last = error.to_string();
+        drop(file);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Err(format!("no exclusive oplock on {}: {last}", path.display()))
+}
+
 /// Explorer showing a folder: a handle that lists it, sharing everything,
 /// with a change notification pending.
 fn hold_watch(path: &Path) -> Result<Held, String> {
@@ -448,13 +515,15 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     fs::create_dir_all(nas_dir.join("Docs").join("sub")).map_err(|e| e.to_string())?;
     fs::create_dir_all(nas_dir.join("Media")).map_err(|e| e.to_string())?;
     fs::write(nas_dir.join("Docs").join("relatório final (v2).txt"), "relatório\n").map_err(|e| e.to_string())?;
-    fs::write(nas_dir.join("Docs").join("numeros.txt"), &numbers).map_err(|e| e.to_string())?;
+    for name in ["numeros.txt", "acrescentar.txt", "emendar.txt", "reescrever.txt"] {
+        fs::write(nas_dir.join("Docs").join(name), &numbers).map_err(|e| e.to_string())?;
+    }
     fs::write(nas_dir.join("Docs").join("sub").join("nota.txt"), "nota\n").map_err(|e| e.to_string())?;
     fs::write(nas_dir.join("Media").join("filme.bin"), &film).map_err(|e| e.to_string())?;
     let nas = Nas::start(nas_dir, 5025, false);
 
     println!("== start (an ordinary NAS)");
-    let svc = match Service::start(dir, "a", &nas.url, 18750) {
+    let svc = match Service::start(dir, "a", dir.join("mnt-a"), &nas.url, 18750) {
         Ok(svc) => svc,
         Err(e) => {
             c.bad("the service starts and connects the sync folder", &e);
@@ -467,6 +536,16 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     c.check("state: running, online, Windows", expect(state["phase"] == "running" && state["info"]["online"] == true && state["platform"] == "windows", || state.to_string()));
 
     println!("== browse and read on demand");
+    // Before any other program opens the folder: Windows does not ask the
+    // service for the content of a folder the service itself lists.
+    let listed = |rel: &str| -> Result<Vec<String>, String> {
+        let listing = svc.api.get(&format!("/api/browse?path={}", percent_encoding::utf8_percent_encode(rel, percent_encoding::NON_ALPHANUMERIC)))?;
+        let mut names: Vec<String> = listing["entries"].as_array().into_iter().flatten().map(|e| e["name"].as_str().unwrap_or("?").to_string()).collect();
+        names.sort();
+        Ok(names)
+    };
+    c.check("the interface lists the top before anyone opened the folder", listed("").and_then(|l| expect(l == ["Docs", "Media"], || format!("{l:?}"))));
+    c.check("...and a folder nobody opened yet", listed("Docs/sub").and_then(|l| expect(l == ["nota.txt"], || format!("{l:?}"))));
     let top = names(&svc.root);
     c.check("top-level listing", expect(top == ["Docs", "Media"], || format!("{top:?}")));
     c.is("names with accents and spaces", svc.path("Docs/relatório final (v2).txt").is_file());
@@ -489,9 +568,24 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     synced(c, "new folder", &svc, &nas, "Projetos", None);
     synced(c, "new folder inside it", &svc, &nas, "Projetos/app/src", None);
     synced(c, "file inside the new folders", &svc, &nas, "Projetos/app/src/main.rs", Some(b"fn main() {}\n"));
+
+    println!("== changes to files of the NAS");
     let longer = format!("{numbers}linha extra\n");
-    fs::OpenOptions::new().append(true).open(svc.path("Docs/numeros.txt")).and_then(|mut f| f.write_all(b"linha extra\n")).map_err(|e| e.to_string())?;
-    synced(c, "append to a file of the NAS", &svc, &nas, "Docs/numeros.txt", Some(longer.as_bytes()));
+    let append = |rel: &str| fs::OpenOptions::new().append(true).open(svc.path(rel)).and_then(|mut f| f.write_all(b"linha extra\n")).map_err(|e| e.to_string());
+    if c.check("append to an online-only file (a handle that can only append)", append("Docs/acrescentar.txt")) {
+        synced(c, "appended, online-only", &svc, &nas, "Docs/acrescentar.txt", Some(longer.as_bytes()));
+    }
+    let amend = fs::OpenOptions::new().read(true).write(true).open(svc.path("Docs/emendar.txt")).and_then(|mut f| f.write_all(b"X")).map_err(|e| e.to_string());
+    if c.check("write at the start of an online-only file", amend) {
+        synced(c, "amended, online-only", &svc, &nas, "Docs/emendar.txt", Some(format!("X{}", &numbers[1..]).as_bytes()));
+    }
+    if c.check("replace the content of an online-only file", fs::write(svc.path("Docs/reescrever.txt"), "de novo\n").map_err(|e| e.to_string())) {
+        synced(c, "replaced, online-only", &svc, &nas, "Docs/reescrever.txt", Some(b"de novo\n"));
+    }
+    c.is("a file is read (and so kept here)", fs::read(svc.path("Docs/numeros.txt")).is_ok_and(|d| d == numbers.as_bytes()));
+    if c.check("append to a file that is already here", append("Docs/numeros.txt")) {
+        synced(c, "appended, already here", &svc, &nas, "Docs/numeros.txt", Some(longer.as_bytes()));
+    }
     let parts: Vec<PathBuf> = walk(&nas.dir).into_iter().filter(|p| nasyncloud::remote::is_part_file(&p.file_name().unwrap_or_default().to_string_lossy())).collect();
     c.check("no temporary upload files left on the NAS", expect(parts.is_empty(), || format!("{parts:?}")));
     c.check("nothing left to send and no errors", wait_for(30, || svc.api.settled()));
@@ -500,6 +594,7 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     held_file(c, &svc, &nas, "Docs/aberto.txt", "open in a viewer (sharing everything)", hold_shared);
     held_file(c, &svc, &nas, "Docs/so-leitura.txt", "open in a program that denies writing", hold_deny_write);
     held_file(c, &svc, &nas, "Docs/trancado.txt", "with a byte-range lock (no oplock possible)", hold_byte_lock);
+    held_file(c, &svc, &nas, "Docs/com-oplock.txt", "under another program's exclusive oplock", hold_oplock);
     held_folder(c, &svc, &nas, "Aberta", "shown by Explorer (watched, sharing everything)", hold_watch);
     held_folder(c, &svc, &nas, "Docs/Reservada", "open in a program that denies writing", hold_deny_write);
     c.check("nothing left to send and no errors", wait_for(30, || svc.api.settled()));
@@ -547,7 +642,7 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     let (cfg, log) = (svc.cfg.clone(), svc.log.clone());
     let sent = nas.requests("PUT ");
     c.check("the service stops when asked to", svc.stop());
-    match Service::start(dir, "a", &nas.url, 18750) {
+    match Service::start(dir, "a", dir.join("mnt-a"), &nas.url, 18750) {
         Ok(svc) => {
             c.ok("the service starts again on the same folder");
             // Long enough for the first pass over the folders (2 s after the start).
@@ -561,7 +656,7 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     }
     let conflicts: Vec<PathBuf> = walk(&nas.dir).into_iter().filter(|p| p.to_string_lossy().contains("(conflict")).collect();
     c.check("no conflict copies on the NAS", expect(conflicts.is_empty(), || format!("{conflicts:?}")));
-    let failed: Vec<String> = fs::read_to_string(&log).unwrap_or_default().lines().filter(|l| l.contains("retrying in") || l.contains("panicked")).map(str::to_string).collect();
+    let failed: Vec<String> = fs::read_to_string(&log).unwrap_or_default().lines().filter(|l| l.contains("retrying in") || l.contains("could not populate") || l.contains("panicked")).map(str::to_string).collect();
     c.check("the service never failed at anything it tried", expect(failed.is_empty(), || failed.join("\n       ")));
     c.check("unregister: the folder stops being a sync folder", Service::unregister(&cfg).map(|_| ()));
     Ok(())
@@ -605,13 +700,20 @@ impl Drop for PutFoldersBack {
 /// the test: only on a machine that is thrown away.
 fn closed_top(dir: &Path, c: &mut Checks) -> Result<(), String> {
     let nas_dir = dir.join("nas-b");
-    fs::create_dir_all(nas_dir.join("home")).map_err(|e| e.to_string())?;
+    fs::create_dir_all(nas_dir.join("home").join("mais")).map_err(|e| e.to_string())?;
+    fs::write(nas_dir.join("home").join("outro.txt"), "já estava na NAS\n").map_err(|e| e.to_string())?;
     fs::create_dir_all(nas_dir.join("Docs")).map_err(|e| e.to_string())?;
     fs::write(nas_dir.join("Docs").join("a.txt"), "na NAS\n").map_err(|e| e.to_string())?;
     let nas = Nas::start(nas_dir, 5026, true);
+    // On the volume of the Desktop, next to it, as the sync folder of a real
+    // installation is (`C:\Users\name\NAS`): what is on the Desktop is then
+    // moved by renaming it, not by copying.
+    let original = desktop_path();
+    let root = original.parent().ok_or("the Desktop has no parent folder")?.join("nasyncloud-e2e-mnt-b");
+    let _ = fs::remove_dir_all(&root);
 
     println!("== start (a NAS with a closed top, as UGOS)");
-    let svc = match Service::start(dir, "b", &nas.url, 18751) {
+    let svc = match Service::start(dir, "b", root, &nas.url, 18751) {
         Ok(svc) => svc,
         Err(e) => {
             c.bad("the service starts and connects the sync folder", &e);
@@ -626,7 +728,6 @@ fn closed_top(dir: &Path, c: &mut Checks) -> Result<(), String> {
 
     println!("== the Desktop on the NAS");
     let folders = svc.api.get("/api/folders")?;
-    let original = desktop_path();
     c.check("the Desktop starts in its usual place", expect(desktop(&folders)["on_nas"] == false && same_path(Path::new(desktop(&folders)["path"].as_str().unwrap_or_default()), &original), || folders.to_string()));
     c.check("the top and the folders of the NAS are offered", expect(places(&folders) == ["", "Docs", "home"], || folders["places"].to_string()));
     fs::write(original.join("e2e-ficheiro.txt"), "estava no Ambiente de trabalho\n").map_err(|e| e.to_string())?;
@@ -652,6 +753,8 @@ fn closed_top(dir: &Path, c: &mut Checks) -> Result<(), String> {
     c.check("...the interface shows it on the NAS, in that folder", expect(view["on_nas"] == true && view["place"] == "home" && view["refused"] == false, || view.to_string()));
     c.check("...and Windows has the Desktop there", expect(same_path(&desktop_path(), &svc.path(there)), || desktop_path().display().to_string()));
     synced(c, "the Desktop folder", &svc, &nas, there, None);
+    let around = names(&svc.path("home"));
+    c.check("...next to what the NAS already had in that folder", expect(around == ["Ambiente de trabalho", "mais", "outro.txt"], || format!("{around:?}")));
     synced(c, "a file that was on the Desktop", &svc, &nas, &format!("{there}/e2e-ficheiro.txt"), Some(b"estava no Ambiente de trabalho\n"));
     synced(c, "a folder that was on the Desktop", &svc, &nas, &format!("{there}/e2e-pasta"), None);
     synced(c, "the file in that folder", &svc, &nas, &format!("{there}/e2e-pasta/dentro.txt"), Some(b"dentro de uma pasta\n"));
@@ -662,8 +765,10 @@ fn closed_top(dir: &Path, c: &mut Checks) -> Result<(), String> {
     let report = svc.api.post("/api/folders", json!({ "key": "desktop", "on": false }))?;
     c.check("the Desktop goes back to its usual place", expect(report["refused"] == false && same_path(&desktop_path(), &original), || format!("{report} / {}", desktop_path().display())));
     c.check("...and its files stay on the NAS", nas.has(&format!("{there}/e2e-ficheiro.txt"), b"estava no Ambiente de trabalho\n"));
-    let cfg = svc.cfg.clone();
+    let (cfg, log) = (svc.cfg.clone(), svc.log.clone());
     c.check("the service stops when asked to", svc.stop());
+    let failed: Vec<String> = fs::read_to_string(&log).unwrap_or_default().lines().filter(|l| l.contains("retrying in") || l.contains("could not populate") || l.contains("panicked")).map(str::to_string).collect();
+    c.check("the service never failed at anything it tried", expect(failed.is_empty(), || failed.join("\n       ")));
     c.check("unregister: the folder stops being a sync folder", Service::unregister(&cfg).map(|_| ()));
     c.check("...with the Desktop still in its usual place", expect(same_path(&desktop_path(), &original), || desktop_path().display().to_string()));
     Ok(())

@@ -843,6 +843,7 @@ impl SyncFilter for Hooks {
             return Ok(());
         }
         let expected = from_blob(request.file_blob());
+        log::debug!("download of {rel}: bytes {start}..{end} of {size}");
         // Cancelled by `stop`: the program reading the file then gets an error.
         let res: Result<(), RemoteError> = eng.net(async {
             let mut dl = eng.remote.open_range(&rel, start, Some(end)).await?;
@@ -882,6 +883,7 @@ impl SyncFilter for Hooks {
             if !buf.is_empty() {
                 ticket.write_at(&buf, pos).map_err(api)?;
             }
+            log::debug!("downloaded {rel}: bytes {start}..{end}");
             Ok(())
         });
         res.map_err(|e| {
@@ -918,6 +920,7 @@ impl SyncFilter for Hooks {
             }
         };
         eng.known_dirs.lock().unwrap().insert(rel.clone());
+        log::debug!("opening {rel:?}: {} item(s) on the NAS", entries.len());
         let mut infos: Vec<PlaceholderCreateInfo> = entries
             .iter()
             .filter(|e| !eng.excludes.matches(&remote::join(&rel, &e.name), e.is_dir))
