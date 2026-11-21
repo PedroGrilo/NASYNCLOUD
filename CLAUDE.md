@@ -16,17 +16,17 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.5.2, 2026-11-21)
+## Estado atual (v1.5.2 e o que está «Por lançar», 2026-11-21)
 
 | Parte | Estado |
 |---|---|
 | Linux (FUSE) | Completo e testado: 28 testes (`cargo test`) + 64 verificações num mount real (`tests/e2e.sh`) |
 | macOS (NFS local) | Completo e testado no Mac do Pedro (macOS 27), sem macFUSE: `cargo test` + 63 verificações num mount real (`tests/e2e.sh`; 1 saltada: `st_blocks`). Testados à mão: cópia pelo Finder, `ditto`/`cp -p` com xattrs, ejetar, recuperação depois de `kill -9` |
-| Windows (Cloud Files) | Compila (`cargo check --target x86_64-pc-windows-msvc`) e o Pedro já o usa no Windows; sem testes automáticos. O Ambiente de trabalho, os Documentos e as Imagens na NAS (`src/win/folders.rs`): a 1.5.0 correu num PC real e falhou com 405 (ver «UGOS, cimo do WebDAV» nas armadilhas); a 1.5.1 (escolher a pasta da NAS, mudar de sítio) correu no mesmo PC e a pasta passou para `home/Ambiente de trabalho`, mas nada foi adotado, com 0x800700AA (ver «Windows, oplocks»); a 1.5.2 (handles normais) só foi compilada |
+| Windows (Cloud Files) | Testado de ponta a ponta no GitHub Actions (`windows-latest`, Windows Server 2025 build 26100, com o Explorador a correr): `tests/e2e_windows.rs`, 137 verificações com o serviço a sério contra o `fake_nas`, em cada push para `main`, em cada PR e antes de cada Release (`ci.yml`, `release.yml`). Cobre o que a 1.5.0, a 1.5.1 e a 1.5.2 lançaram sem nunca ter corrido (o Ambiente de trabalho na NAS com o cimo fechado, handles normais em vez de oplocks). Na primeira vez que correu apanhou quatro erros do motor, corrigidos em «Por lançar» (ver CHANGELOG e as armadilhas «Windows, pastas por abrir», «Windows, acrescentar» e «Windows, oplocks»). Num Windows de cliente (10/11) só corre à mão, no PC do Pedro; o 0x800700AA da 1.5.1 não se reproduz no runner |
 | Interface web | Testada pela API no e2e e vista no browser (desktop e telemóvel); capturas atuais em `docs/screenshots/` (`panel.png`, `files.png`), feitas com uma NAS de demonstração (`fake_nas`) e o browser do Claude |
 | WebDAV da UGOS | **Nunca testado contra o servidor real.** Testado contra rclone (Go x/net/webdav) e `dav-server` |
 
-Primeiro passo quando houver acesso a Windows ou à NAS real: `nasyncloud -v ui`, configurar numa pasta partilhada de teste e corrigir a partir do registo. A própria UGREEN documenta erros 405 do WebDAV ao criar pastas com rclone/Cyberduck; `WebDav::mkdir` já tenta contornar (stat + barra final), mas é o sítio mais provável de falhar.
+Antes de mexer em `src/win.rs` ou `src/win/folders.rs`: o que conta é o `tests/e2e_windows.rs` verde no GitHub (abrir um PR basta para o correr); no Mac só se consegue compilar. Primeiro passo quando houver acesso à NAS real: `nasyncloud -v ui`, configurar numa pasta partilhada de teste e corrigir a partir do registo. A própria UGREEN documenta erros 405 do WebDAV ao criar pastas com rclone/Cyberduck; `WebDav::mkdir` já tenta contornar (stat + barra final), mas é o sítio mais provável de falhar.
 
 ## Mapa do código
 
@@ -59,6 +59,7 @@ tests/
   common/mod.rs     servidor WebDAV em memória (dav-server) com NAS "em baixo", falhas de PUT, latência
   webdav.rs, vfs.rs testes de integração
   e2e.sh            mount real (FUSE no Linux, NFS no macOS) contra rclone ou fake_nas + API da interface
+  e2e_windows.rs    o mesmo para o Windows: `nasyncloud serve` numa pasta sincronizada a sério contra o fake_nas  [windows]
 tools/
   demo.sh           NAS falsa com conteúdo realista + mount + interface em :18731
   screenshot.py     capturas da interface (QtWebEngine), usado para docs/screenshots
@@ -67,12 +68,13 @@ desktop/          a app da bandeja / barra de menus (Tauri v2), crate `nasynclou
   dist/index.html   página local de erro (o serviço não arrancou)
   icons/            ícones da app e da bandeja (tray-template.png = símbolo monocromático do macOS)
 examples/
-  fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone, p.ex. no macOS
+  fake_nas.rs       NAS falsa (dav-server + Basic auth) para testar sem rclone; `--closed-top` imita o cimo da UGOS (405)
 tools/package-macos.sh   gera dist/NASYNCLOUD.app e dist/NASYNCLOUD-<versão>-macos-<arch>.dmg (assinatura ad-hoc)
 packaging/macos/  Info.plist (LSUIElement) e LEIA-ME
 packaging/windows/LEIA-ME.txt   vai no zip com o nasyncloud.exe
 assets/           icon.svg (fonte) e nasyncloud.icns (gerado a partir dele, ver «Lançar uma versão»)
 .github/workflows/release.yml   tag v* → testes no macOS e no Windows → .dmg e .exe (zip) → GitHub Release (sem Linux, a pedido do Pedro)
+.github/workflows/ci.yml        push para main, PR ou à mão → testes no Windows, com o e2e do motor do Windows
 ```
 
 `Mounted` tem a mesma API nas duas plataformas (`start`, `stop`, `wait_ended`, `info`, `browse`, `pin`, `free`, `refresh`); `service.rs` só fala com isso.
@@ -82,17 +84,20 @@ assets/           icon.svg (fonte) e nasyncloud.icns (gerado a partir dele, ver 
 ```sh
 cargo build && cargo test
 cargo clippy --all-targets                                   # deve dar zero avisos
-cargo check --target x86_64-pc-windows-msvc                  # verificação cruzada Windows
+cargo check --target x86_64-pc-windows-msvc --all-targets    # verificação cruzada Windows (inclui tests/e2e_windows.rs)
 cargo check --target aarch64-apple-darwin                    # a partir de outro SO
 cargo build && cargo build --example fake_nas && tests/e2e.sh   # Linux (fuse3) ou macOS (nada a instalar); curl, bc, python3; rclone opcional
 tools/demo.sh                                                # demo em http://127.0.0.1:18731
+cargo build --example fake_nas && cargo test --test e2e_windows -- --nocapture   # só no Windows; no GitHub corre sozinho (ci.yml)
 ```
+
+O e2e do Windows (`tests/e2e_windows.rs`) faz parte do `cargo test` no Windows; noutro sistema compila para nada. Arranca o `fake_nas` e o `nasyncloud serve` (password por `NASYNCLOUD_PASSWORD`) em `target/tmp/e2e-windows` e verifica pelo sistema de ficheiros, pela API local (`/api/state`, `/api/browse`, `/api/folders`, `/api/pin`, `/api/free`, `/api/refresh`) e pela pasta do `fake_nas`. A parte que move o Ambiente de trabalho para a NAS (`SHSetKnownFolderPath`, com o `fake_nas --closed-top`) só corre com `NASYNCLOUD_E2E_KNOWN_FOLDERS=1`, que os workflows definem: **nunca num computador que alguém use**. No GitHub Actions falha de propósito se a variável faltar, para essa parte não ficar por correr sem ninguém dar por isso. Os registos (`service-a.log`, `service-b.log`, `nas-a.log`, `nas-b.log`) ficam como artifact `e2e-windows-logs` da execução.
 
 ## Lançar uma versão
 
 1. Subir `version` no `Cargo.toml` (e o `Cargo.lock` com `cargo build`) e mudar «Por lançar» no CHANGELOG para a versão e a data.
 2. Commit, depois `git tag vX.Y.Z && git push origin main vX.Y.Z`. A tag tem de ser igual à versão do `Cargo.toml`, senão o workflow falha logo.
-3. O `release.yml` corre os testes no macOS e no Windows, gera o `.dmg` e o zip com o `.exe` e publica a Release. Em «Run workflow» (manual) só gera os pacotes, que ficam como artifacts da execução. O Linux não está no workflow: clippy, testes e e2e no Linux só correm à mão. Na última vez que correram no GitHub (Ubuntu 26.04) deram clippy limpo, testes OK e e2e 63/64, e a falha já foi corrigida no teste.
+3. O `release.yml` corre os testes no macOS e no Windows (no Windows, com o e2e do motor: `tests/e2e_windows.rs`), gera o `.dmg` e o zip com o `.exe` e publica a Release. Em «Run workflow» (manual) só gera os pacotes, que ficam como artifacts da execução. O Linux não está no workflow: clippy, testes e e2e no Linux só correm à mão. Na última vez que correram no GitHub (Ubuntu 26.04) deram clippy limpo, testes OK e e2e 63/64, e a falha já foi corrigida no teste.
 4. As tags publicadas não se movem (o auto mode bloqueia `push -f`). Se uma tag falhar, corrige-se e lança-se a versão seguinte. Foi o que aconteceu à `v0.2.0`, que ficou sem Release.
 
 O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PNG de 1024 px com fundo transparente (o Quick Look/`qlmanage` mete fundo branco, por isso usa um script Swift com `NSImage` + `NSBitmapImageRep`), cria o iconset com `sips -z` (16–512, @1x e @2x) e corre `iconutil -c icns`.
@@ -116,15 +121,17 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 - **Durabilidade**: um ficheiro só passa a `dirty` com o índice gravado com fsync *antes* do primeiro byte alterado (`prepare_write`). Os ficheiros de cache levam fsync antes de o índice afirmar o que têm (`unsynced`). Commits redb sem fsync só ficam permanentes com o próximo commit durável: o `flush(durable)` sabe se ainda deve um (`commits`/`durable_at`). Foi um bug real (cópias de conflito falsas depois de reiniciar).
 - **Invalidar cache** cria uma nova geração do ficheiro (`<id>-<gen>`); nunca se altera a antiga, para o índice não mentir depois de um crash.
 - **fuser 0.18**: não usar `Session::spawn()`, porque tira o mount ao `SessionUnmounter`. Corre-se `session.run()` numa thread própria; o fim chega por um `watch::Receiver<bool>`.
-- **Windows**: os callbacks da Cloud Files correm em threads da própria API e usam `Handle::block_on`. As operações da interface (`browse`, `pin`, `free`) vão por `spawn_blocking`, porque listar uma pasta por abrir dispara um callback. A conexão vive na thread `nasyncloud-sync`.
+- **Windows**: os callbacks da Cloud Files correm em threads da própria API e usam `Handle::block_on`. As operações da interface (`browse`, `pin`, `free`, `folders`) vão por `spawn_blocking`: fazem pedidos à NAS com `Engine::net`. A conexão vive na thread `nasyncloud-sync`.
+- **Windows, pastas por abrir**: o Windows só pede o conteúdo de uma pasta (`fetch_placeholders`) quando é *outro* programa a abri-la. Quando é o próprio serviço a listar (`read_dir`), não pede nada e vê-se só o que já está no disco (visto no runner, Windows Server 2025; as notas da `cloud-filter` dizem o mesmo do Windows 10). Por isso `Engine::populate` (a pasta e as de cima) e `populate_one` listam a NAS, criam os placeholders e marcam a pasta como aberta (`has_no_children`), para o `poll_dir` passar a tratar dela: usam-nos o `browse`, o `folders`, o `move_folder` e o `hydrate_tree`. Sem isto a interface mostrava vazia qualquer pasta que ninguém tivesse aberto no Explorador, e «Guardar na NAS» não sabia que pastas a NAS tinha. O `fetch_placeholders` salta o que já existe no disco: pedir ao Windows que crie um nome que já lá está falha a listagem inteira (0x800700B7, «could not populate»), e de cada vez que a pasta é aberta. Qualquer coisa que o motor crie numa pasta por abrir cai nisto.
 - **Windows, parar**: o trabalho de fundo (`Engine::work`) corre em fatias (`QUEUE_SLICE`, `POLL_SLICE`) e todas as chamadas à NAS passam por `Engine::net`, que as cancela quando `stop` é ligado. `Mounted::stop` espera no máximo `STOP_WAIT` (20 s). Não voltar a pôr ciclos longos sem olhar para `stopping()`: foi o encravamento em «A parar…».
-- **Windows, vigia de pastas**: o `cloud-filter` tem o seu próprio vigia (`ReadDirectoryChangesW`). Quando transborda, varre a pasta inteira com `read_dir`, o que abriria todas as pastas da NAS; por isso o `fetch_placeholders` recusa pedidos do nosso próprio processo, exceto dentro de `Engine::listing` (enumerações nossas de propósito). A recusa mata o vigia; `Engine::run` volta a ligar a pasta (no máximo duas vezes por minuto) e a volta seguinte apanha o que mudou. Qualquer `read_dir` novo de uma pasta que possa não estar aberta tem de ir dentro de `listing`.
+- **Windows, vigia de pastas**: o `cloud-filter` tem o seu próprio vigia (`ReadDirectoryChangesW`). Quando transborda, varre a pasta inteira com `read_dir`, o que abriria todas as pastas da NAS; por isso o `fetch_placeholders` recusa pedidos do nosso próprio processo, exceto dentro de `Engine::listing` (enumerações nossas de propósito). A recusa mata o vigia; `Engine::run` volta a ligar a pasta (no máximo duas vezes por minuto) e a volta seguinte apanha o que mudou. Qualquer `read_dir` novo de uma pasta que possa não estar aberta tem de ir dentro de `listing`. No runner, as listagens do próprio processo nunca chegaram ao `fetch_placeholders` (ver «Windows, pastas por abrir»), por isso esta recusa pode nunca acontecer; ficou como estava, por não se saber se há versões do Windows em que acontece.
 - **UGOS, cimo do WebDAV**: com o endereço da NAS inteira (`http://IP:5005/`, sem pasta partilhada) a raiz é só a lista das pastas partilhadas, e não se cria lá nada: o `MKCOL` de uma pasta nova dá 405 (visto num print do Pedro de 2026-11-21, com `Ambiente de trabalho` no cimo). Por relatos de outros clientes (rclone #9010, cc-switch #5621), a UGOS também responde 405, e não 409, a um `MKCOL` com o pai em falta, e 400 a um `MKCOL` sobre uma pasta partilhada que já existe; o `WebDav::mkdir` confirma qualquer recusa com um `stat`. No Windows, `Engine::make_dir` regista as recusas (`refused`, e `top_closed` para o cimo, que nunca se limpa: um sucesso no cimo pode ser só «já existia»). Por isso `folders.rs` cria a pasta na NAS *antes* de mover ficheiros e deixa escolher o sítio (`place`). Nunca pôr nada no cimo da pasta da NAS sem o perguntar primeiro à NAS.
-- **Windows, oplocks**: `Placeholder::open` e `Placeholder::options()` do `cloud-filter` usam `CfOpenFileWithOplock`, que pede um oplock: falha (0x800700AA, «o recurso pedido está a ser utilizado») enquanto outro programa tiver o item aberto, e o handle fica inválido (0x80070006) quando outro o abre depois. No Ambiente de trabalho isso é sempre, por causa do Explorador (print do Pedro de 2026-11-21, já com a pasta em `home/Ambiente de trabalho`). Usar `read_handle` (ver o estado), `data_handle` (hidratar) e `write_handle` (converter, atualizar, fixar): handles normais, com `WRITE_DAC` de recurso, que nenhum modo de partilha recusa. O único oplock que fica é o do `update(...).dehydrate()` em `poll_dir`, porque largar dados exige o ficheiro só para nós. A causa é uma dedução (print + documentação da Microsoft), e a correção da 1.5.2 não correu num Windows.
+- **Windows, oplocks**: `Placeholder::open` e `Placeholder::options()` do `cloud-filter` usam `CfOpenFileWithOplock`, que pede um oplock: falha (0x800700AA, «o recurso pedido está a ser utilizado») enquanto outro programa tiver o item aberto, e o handle fica inválido (0x80070006) quando outro o abre depois. No Ambiente de trabalho isso é sempre, por causa do Explorador (print do Pedro de 2026-11-21, já com a pasta em `home/Ambiente de trabalho`). Usar `read_handle` (ver o estado), `data_handle` (hidratar) e `write_handle` (converter, atualizar, fixar): handles normais, com `WRITE_DAC` de recurso, que nenhum modo de partilha recusa. O único oplock que fica é o do `update(...).dehydrate()` em `poll_dir`, porque largar dados exige o ficheiro só para nós: tem de ser `.exclusive()`, senão o Windows responde «handle inválido» (0x80070006) sempre, e os ficheiros alterados na NAS nunca mudavam cá (apanhado pelo e2e). A causa do 0x800700AA é uma dedução (print + documentação da Microsoft): no runner não se reproduz, nem com o Ambiente de trabalho dentro da pasta sincronizada e o Explorador a correr. O que lá faz falhar o `CfOpenFileWithOplock` é outro programa ter o item com um handle sem partilha (0x80070020), com um bloqueio de bytes (0x8007012C) ou com um oplock exclusivo (0x80070322, o caso de indexadores e antivírus); um handle normal de atributos funciona em todos. O e2e segura ficheiros e pastas dessas maneiras enquanto são enviados e adotados: com um oplock de volta em `inspect`, falha (8 verificações, no ficheiro sob oplock exclusivo de outro programa).
+- **Windows, acrescentar**: dados acrescentados por um handle que só acrescenta (`FILE_APPEND_DATA`: o `append(true)` do Rust, o `O_APPEND` do Go) não tiram ao ficheiro o estado «sincronizado» do Windows, e ficavam por enviar para sempre. `inspect` só dá por sincronizado o que tem o tamanho da versão guardada no placeholder. Num ficheiro só online, o Windows descarrega-o e depois falha essa escrita com o erro 1450 («recursos de sistema insuficientes»); o motor já fez a sua parte e não há nada a corrigir do nosso lado: o programa recebe o erro, o ficheiro fica cá inteiro e a tentativa seguinte funciona (o e2e verifica isso mesmo). Visto no runner (build 26100); não se sabe se é igual noutras versões.
 - **Windows, apagar cá sem apagar lá**: `as_ours` + `is_ours` (por prefixo: abrange o que está dentro). `prune` só apaga placeholders sincronizados e pastas nunca abertas; o resto fica e volta à fila.
 - **Interface**: todo o texto vindo da NAS entra no DOM como texto (função `h()`), nunca `innerHTML`, porque os nomes de ficheiros podem ter qualquer coisa. `[hidden]{display:none!important}` existe porque muitos componentes definem `display`. Em ecrãs estreitos a grelha usa `minmax(0,1fr)`, senão o menu alarga a página.
 - **Segurança da interface**: só 127.0.0.1, token no header `x-nasyncloud-token` (guardado em `ui.json`, 0600, mantido entre arranques), verificação do `Host` (421), CSP, corpo até 64 KiB, caminhos com `..` recusados.
-- **Testes**: o e2e usa as portas 5005 (rclone) e 18730 (interface); a demo usa 5007 e 18731. Nunca usar `pkill -f` com um padrão que apareça no próprio script: mata a shell que o corre.
+- **Testes**: o e2e usa as portas 5005 (rclone) e 18730 (interface); a demo usa 5007 e 18731; o e2e do Windows usa 5025 e 5026 (NAS) e 18750 e 18751 (interface). Nunca usar `pkill -f` com um padrão que apareça no próprio script: mata a shell que o corre.
 - `tests/e2e.sh` começa por matar qualquer `rclone`/`nasyncloud` a correr, incluindo a demo: correr a demo *depois* do e2e.
 - `tests/e2e.sh` e `tools/demo.sh` procuram o binário em `target/debug/`; com `CARGO_TARGET_DIR` diferente, passar `BIN=/caminho/nasyncloud`. O e2e aceita `E2E_DIR` (pasta de trabalho), `NAS_SERVER=rclone|fake_nas` e `FAKE_NAS`.
 - **macOS, mount NFS**: `mount_nfs` funciona sem root numa pasta do utilizador; `umount`/`unmount(2)` também. É um mount *hard* (sem `soft`): uma leitura lenta da NAS nunca falha por tempo esgotado, mas um serviço morto deixa a pasta pendurada. Por isso, ao arrancar, `nfs::clean_stale` lê a tabela de mounts (`getmntinfo`, sem I/O) e desmonta com `MNT_FORCE` *antes* de qualquer `read_dir`/`canonicalize` da pasta. Nunca fazer `stat` ao mountpoint sem isso.
@@ -148,14 +155,14 @@ O ícone vem de `assets/icon.svg`. Para o regenerar no Mac, desenha o SVG num PN
 
 ## Próximos passos possíveis
 
-1. Testar no Windows e contra a UGOS real (ver acima). Correr o e2e no Linux depois das mudanças para o macOS (ver CHANGELOG): o ramo Linux de `fuse.rs` não foi recompilado nem testado.
+1. Testar contra a UGOS real (ver acima) e, à mão, num Windows de cliente (10/11): o e2e do Windows só corre no Windows Server do runner. Correr o e2e no Linux depois das mudanças para o macOS (ver CHANGELOG): o ramo Linux de `fuse.rs` não foi recompilado nem testado.
 2. Ícone na bandeja do sistema (crate `tray-icon`) ou um invólucro Tauri à volta da mesma interface.
 3. Traduzir para pt-PT as mensagens que aparecem na Atividade (hoje em inglês).
 4. Linux/macOS: fila para apagar/renomear offline (hoje exige a NAS).
 5. Backend SMB ou SFTP: basta implementar o trait `Remote`.
 6. macOS: extensão File Provider (Swift, assinada, precisa da conta Apple Developer) para ter ícones no Finder.
    - macOS: correr o e2e no runner macOS do workflow (já não precisa de instalar nada).
-7. Pacotes prontos a instalar: feito (`release.yml`). Falta: CI em cada push/PR (hoje só com tag ou à mão), assinatura e notarização da Apple (Developer ID), ícone no `.exe`, `.dmg` universal (Intel).
+7. Pacotes prontos a instalar: feito (`release.yml`). CI em cada push/PR: feito para o Windows (`ci.yml`); falta o macOS (testes e `tests/e2e.sh`) e o Linux. Falta também: assinatura e notarização da Apple (Developer ID), ícone no `.exe`, `.dmg` universal (Intel).
 
 ## Repositório e máquina local
 

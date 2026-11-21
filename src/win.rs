@@ -10,8 +10,9 @@
 //! * send local changes to the NAS (new and modified files, renames, deletes),
 //! * bring changes made on the NAS into the folder (polling).
 //!
-//! NOTE: this module is type-checked for Windows but, unlike the Linux/macOS
-//! engine, has not been exercised by the automated tests.
+//! It is written on a Mac, where it can only be type-checked. What runs it
+//! for real is `tests/e2e_windows.rs`, on the Windows runner of GitHub
+//! Actions (`.github/workflows/ci.yml`): change something here, look there.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
