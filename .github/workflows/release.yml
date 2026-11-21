@@ -64,11 +64,22 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # `cargo test` includes the end-to-end test of the Windows engine
+      # (tests/e2e_windows.rs, the one ci.yml runs): nothing is packaged
+      # without it. This lets it move the runner's Desktop onto the fake NAS.
+      NASYNCLOUD_E2E_KNOWN_FOLDERS: 1
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
+      - name: Logs of the end-to-end test
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-windows-logs
+          path: target/tmp/e2e-windows/*.log
+          if-no-files-found: ignore
       - name: Build the service the installer bundles
         shell: bash
         run: |

@@ -65,6 +65,11 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 tempfile = "3"
 
+# The Windows end-to-end test (tests/e2e_windows.rs) holds files and folders
+# open the way other programs do: byte-range locks, folder watches, oplocks.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"
