@@ -14,6 +14,7 @@ use crate::fuse::Unmounter;
 #[cfg(target_os = "macos")]
 use crate::nfs::Unmounter;
 use nasyncloud::config::{format_size, Config};
+use nasyncloud::conflicts::{Conflict, Keep, Outcome};
 use nasyncloud::vfs::{Info, NodeId, NodeStatus, Pin, Vfs, VfsOptions, ROOT, XATTR_EVICT};
 use tokio::sync::watch;
 
@@ -94,7 +95,17 @@ impl Mounted {
 
     pub fn info(&self) -> MountInfo {
         let i = self.vfs.info();
-        MountInfo { online: i.online, pending_uploads: i.pending_uploads, uploading: i.uploading, cache_bytes: Some(i.cache_bytes), cache_max: Some(i.cache_max), errors: i.errors }
+        let conflicts = self.vfs.conflicts().len() as u64;
+        MountInfo { online: i.online, pending_uploads: i.pending_uploads, uploading: i.uploading, cache_bytes: Some(i.cache_bytes), cache_max: Some(i.cache_max), errors: i.errors, conflicts }
+    }
+
+    /// Files changed here and on the NAS, waiting for a choice.
+    pub fn conflicts(&self) -> Vec<Conflict> {
+        self.vfs.conflicts()
+    }
+
+    pub async fn resolve_conflict(&self, id: u64, keep: Keep) -> Result<Outcome> {
+        Ok(self.vfs.resolve_conflict(id, keep).await?)
     }
 
     async fn resolve(&self, rel: &str) -> Result<NodeId> {

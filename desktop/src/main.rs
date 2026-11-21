@@ -53,6 +53,16 @@ fn log_path() -> PathBuf {
 
 /// A tiny HTTP/1.1 request to the local service; returns the status code.
 fn call(ui: &UiFile, method: &str, path: &str) -> Option<u16> {
+    request(ui, method, path, false).map(|(code, _)| code)
+}
+
+/// GET with the body, for the few things the app reads itself.
+fn get_json(ui: &UiFile, path: &str) -> Option<serde_json::Value> {
+    let (code, body) = request(ui, "GET", path, true)?;
+    (code == 200).then(|| serde_json::from_str(&body).ok()).flatten()
+}
+
+fn request(ui: &UiFile, method: &str, path: &str, with_body: bool) -> Option<(u16, String)> {
     let addr = SocketAddr::from(([127, 0, 0, 1], ui.port));
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
@@ -64,9 +74,19 @@ fn call(ui: &UiFile, method: &str, path: &str) -> Option<u16> {
         body.len()
     );
     s.write_all(req.as_bytes()).ok()?;
-    let mut buf = [0u8; 32];
-    let n = s.read(&mut buf).ok()?;
-    std::str::from_utf8(&buf[..n]).ok()?.split(' ').nth(1)?.parse().ok()
+    let mut raw = Vec::new();
+    if with_body {
+        // `Connection: close`: the body ends where the stream does.
+        s.read_to_end(&mut raw).ok()?;
+    } else {
+        let mut buf = [0u8; 32];
+        let n = s.read(&mut buf).ok()?;
+        raw.extend_from_slice(&buf[..n]);
+    }
+    let text = String::from_utf8_lossy(&raw);
+    let code = text.split(' ').nth(1)?.parse().ok()?;
+    let body = text.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
+    Some((code, body))
 }
 
 fn alive() -> Option<UiFile> {
@@ -339,6 +359,7 @@ fn on_navigation(app: &AppHandle, url: &Url) -> bool {
     // Act outside the webview's own callback.
     std::thread::spawn(move || match action.as_str() {
         "main" => show_main(&app, query.get("view").map_or("", String::as_str)),
+        "panel" => show_panel(&app),
         "hide" => hide_panel(&app),
         "quit" => quit(&app),
         "retry" | "restart" => restart(&app),
@@ -348,6 +369,45 @@ fn on_navigation(app: &AppHandle, url: &Url) -> bool {
         _ => {}
     });
     false
+}
+
+// ---------------------------------------------------------------- conflicts
+
+/// Tells the person when files changed here and on the NAS (the service
+/// keeps both versions, and the panel asks which one to keep). Each conflict
+/// is announced once; the ones already waiting when the app starts, together.
+fn watch_conflicts(app: AppHandle) {
+    let mut told = std::collections::HashSet::new();
+    loop {
+        std::thread::sleep(Duration::from_secs(10));
+        let Some(list) = ui_file().and_then(|ui| get_json(&ui, "/api/conflicts")) else { continue };
+        let Some(list) = list.get("conflicts").and_then(|c| c.as_array()) else { continue };
+        let fresh: Vec<&str> = list
+            .iter()
+            .filter(|c| c.get("id").and_then(|i| i.as_u64()).is_some_and(|id| told.insert(id)))
+            .filter_map(|c| c.get("path").and_then(|p| p.as_str()))
+            .collect();
+        if let Some(body) = conflict_message(&fresh) {
+            notify(&app, &body);
+        }
+    }
+}
+
+/// "relatorio.docx mudou aqui e na NAS…", or "3 conflitos em Documentos…".
+fn conflict_message(paths: &[&str]) -> Option<String> {
+    let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
+    let folder = |p: &str| p.rsplit_once('/').map_or(String::new(), |(d, _)| d.rsplit('/').next().unwrap_or(d).to_string());
+    let tail = "Ficaram as duas versões; abre o painel do NASYNCLOUD para escolher.";
+    match paths {
+        [] => None,
+        [one] => Some(format!("«{}» mudou aqui e na NAS. {tail}", name(one))),
+        [first, rest @ ..] => {
+            let place = folder(first);
+            let same = !place.is_empty() && rest.iter().all(|p| folder(p) == place);
+            let where_ = if same { format!(" em «{place}»") } else { String::new() };
+            Some(format!("{} ficheiros{where_} mudaram aqui e na NAS. {tail}", paths.len()))
+        }
+    }
 }
 
 // ---------------------------------------------------------------- updates
@@ -659,6 +719,9 @@ fn main() {
                     std::thread::sleep(Duration::from_secs(6 * 3600));
                 }
             });
+            // Conflicts (changed here and on the NAS): a notification for each new one.
+            let conflicts = app.handle().clone();
+            std::thread::spawn(move || watch_conflicts(conflicts));
             // Start the service now and keep the panel ready. The first time
             // (nothing configured yet), go straight to the settings.
             let handle = app.handle().clone();

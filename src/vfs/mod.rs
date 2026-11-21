@@ -26,6 +26,7 @@ use tokio::task::JoinHandle;
 
 use crate::activity::{Activity, Transfer};
 use crate::config::Config;
+use crate::conflicts::{Conflict, Conflicts, Keep, Outcome};
 use crate::exclude::Excludes;
 use crate::ranges::RangeSet;
 use crate::remote::{self, Quota, Remote, RemoteError, Version};
@@ -502,6 +503,8 @@ pub struct Vfs {
     tasks: Mutex<Vec<JoinHandle<()>>>,
     /// Recent uploads and downloads, for the interface.
     activity: Activity,
+    /// Files changed here and on the NAS, until the person chooses.
+    conflicts: Conflicts,
 }
 
 pub(crate) fn unix_now() -> i64 {
@@ -536,6 +539,7 @@ impl Vfs {
         if !opts.excludes.is_empty() {
             log::info!("some files and folders stay on this computer only (exclusions in the settings)");
         }
+        let conflicts = Conflicts::open(&opts.state_dir);
         let vfs = Arc::new(Vfs {
             atomic_upload: AtomicBool::new(opts.atomic_upload),
             opts,
@@ -556,6 +560,7 @@ impl Vfs {
             durable_at: AtomicU64::new(0),
             tasks: Mutex::new(Vec::new()),
             activity: Activity::default(),
+            conflicts,
         });
         vfs.flush(true).await?;
         let mut tasks = Vec::new();
@@ -1476,5 +1481,73 @@ impl Vfs {
             n.listed_at = None;
         }
         self.refresh_dir(id).await
+    }
+
+    // ------------------------------------------------------------------
+    // Conflicts (see `crate::conflicts`)
+
+    /// Conflicts still waiting for a choice. Those whose local copy is gone
+    /// (deleted or renamed by the person) are forgotten.
+    pub fn conflicts(&self) -> Vec<Conflict> {
+        self.conflicts.retain(|c| self.resolve(&c.copy).is_some());
+        self.conflicts.list()
+    }
+
+    /// Keeps one version (or both) of a file that changed here and on the NAS.
+    pub async fn resolve_conflict(self: &Arc<Self>, id: u64, keep: Keep) -> Result<Outcome> {
+        let Some(c) = self.conflicts.get(id) else { return Ok(Outcome::Gone) };
+        if keep == Keep::Both {
+            self.conflicts.remove(id);
+            return Ok(Outcome::Done);
+        }
+        let ((dir, name), (copy_dir, copy)) = (remote::split(&c.path), remote::split(&c.copy));
+        let parent = self.resolve(dir).filter(|p| dir == copy_dir && self.st().child(*p, copy).is_ok());
+        let Some(parent) = parent else {
+            self.conflicts.remove(id);
+            return Ok(Outcome::Gone);
+        };
+        // What the NAS has under the original name right now.
+        let now = match self.remote.stat(&c.path).await {
+            Ok(e) => e,
+            Err(e) => {
+                self.note_error(&e);
+                return Err(e.into());
+            }
+        };
+        match keep {
+            Keep::Nas => {
+                if !now.as_ref().is_some_and(|e| !e.is_dir) {
+                    return Ok(Outcome::NasGone);
+                }
+                self.unlink(parent, copy).await?;
+                log::info!("conflict on {:?}: kept the NAS version, deleted {copy:?}", c.path);
+            }
+            Keep::Mine => {
+                if let Some(e) = &now {
+                    if e.is_dir {
+                        return Err(VfsError::IsDir);
+                    }
+                    if !e.version.same(&c.nas) {
+                        // A third version: the person has to see it first.
+                        self.conflicts.set_nas(id, e.version.clone());
+                        return Ok(Outcome::Changed);
+                    }
+                }
+                // So the local tree knows the NAS version that is about to be replaced.
+                self.refresh(parent).await?;
+                let edited_here = {
+                    let st = self.st();
+                    st.child(parent, name).ok().and_then(|o| st.nodes.get(&o)).is_some_and(|o| o.local_change())
+                };
+                if edited_here {
+                    return Ok(Outcome::Changed); // the NAS version was edited here meanwhile
+                }
+                self.rename(parent, copy, parent, name, false).await?;
+                log::info!("conflict on {:?}: kept the version from this computer", c.path);
+            }
+            Keep::Both => unreachable!(),
+        }
+        self.conflicts.remove(id);
+        Ok(Outcome::Done)
     }
 }

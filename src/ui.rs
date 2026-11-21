@@ -201,6 +201,12 @@ struct FolderReq {
 }
 
 #[derive(Deserialize)]
+struct ConflictReq {
+    id: u64,
+    keep: nasyncloud::conflicts::Keep,
+}
+
+#[derive(Deserialize)]
 struct PathReq {
     #[serde(default)]
     path: String,
@@ -339,6 +345,14 @@ impl Handler {
                 Ok(m) => json!({ "transfers": m.transfers() }),
                 Err(_) => json!({ "transfers": [] }),
             },
+            ("GET", "/api/conflicts") => match svc.mounted() {
+                Ok(m) => json!({ "conflicts": m.conflicts() }),
+                Err(_) => json!({ "conflicts": [] }),
+            },
+            ("POST", "/api/conflicts") => {
+                let r: ConflictReq = serde_json::from_value(body)?;
+                json!({ "outcome": svc.mounted()?.resolve_conflict(r.id, r.keep).await? })
+            }
             ("GET", "/api/browse") => {
                 let rel = clean_rel(&param(&query, "path").unwrap_or_default())?;
                 serde_json::to_value(svc.mounted()?.browse(&rel).await?)?

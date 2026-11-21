@@ -49,6 +49,8 @@ pub struct MountInfo {
     pub cache_bytes: Option<u64>,
     pub cache_max: Option<u64>,
     pub errors: Vec<String>,
+    /// Files changed here and on the NAS, waiting for a choice.
+    pub conflicts: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

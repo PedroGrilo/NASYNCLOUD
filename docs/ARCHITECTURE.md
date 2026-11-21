@@ -54,7 +54,15 @@ Antes de alterar um ficheiro no sítio, ele tem de estar todo em cache e marcado
 
 A fila (`jobs`) tem momento de execução e tentativas, com backoff de 2^n s até 300 s. Há um limite de paralelismo e as pastas são criadas primeiro (ids menores primeiro).
 
-Antes de cada upload é feito um `stat` remoto. Se a versão na NAS não for a versão-base local, cria-se uma cópia de conflito: o ficheiro local muda de nome e a versão da NAS reaparece. Caso contrário, o upload vai para `.<pid>-<ns>-<seq>.nasyncloud-part` e depois MOVE com overwrite. Se o servidor recusar o MOVE, passa a upload direto (e marca `overwrite_ok` quando um upload direto interrompido pode ter deixado meia cópia nossa). No fim, verifica o tamanho e adota a versão nova.
+Antes de cada upload é feito um `stat` remoto. Se a versão na NAS não for a versão-base local, cria-se uma cópia de conflito: o ficheiro local muda de nome e a versão da NAS reaparece. O par fica em `conflicts.rs` (ver «Conflitos»). Caso contrário, o upload vai para `.<pid>-<ns>-<seq>.nasyncloud-part` e depois MOVE com overwrite. Se o servidor recusar o MOVE, passa a upload direto (e marca `overwrite_ok` quando um upload direto interrompido pode ter deixado meia cópia nossa). No fim, verifica o tamanho e adota a versão nova.
+
+### Conflitos (`conflicts.rs`)
+
+Resolver um conflito nunca bloqueia nada: a cópia de conflito é feita logo e enviada como outro ficheiro qualquer. `Conflicts` guarda os pares (`path` original, `copy`, a versão local e a versão da NAS vista nesse momento) em `conflicts.json`, no `state_dir`, escrito por cima de um temporário. Os ids vêm do relógio (µs), para a app nunca notificar duas vezes o mesmo. Ao listar, sai da lista o que já não tem cópia (apagada ou renomeada à mão).
+
+- `mine`: um `stat` à NAS; se a versão lá não for a guardada (`Version::same`), não se faz nada, guarda-se a nova e devolve-se `changed` (escolher outra vez substitui essa). Linux/macOS: `refresh` da pasta e `Vfs::rename(copy → original)`, que faz MOVE com overwrite, ou, se a cópia ainda não subiu, herda a versão da NAS como base e sobe por cima dela. Windows: só MOVE na NAS (exige a cópia já sincronizada, senão `sending`), e o `poll_dir` seguinte atualiza o placeholder original e remove o da cópia.
+- `nas`: se a NAS já não tiver o ficheiro, `nas_gone`. Senão apaga a cópia (Linux/macOS: `Vfs::unlink`; Windows: DELETE na NAS e `remove_ours`).
+- `both`: só sai da lista.
 
 ### Sincronização (`sync.rs`)
 
@@ -95,7 +103,7 @@ Desde a 1.1.0, o macOS não usa FUSE. O serviço abre um servidor NFSv3 (crate `
 
 Uma casca Tauri v2 que não tem o motor: arranca o binário `nasyncloud` que está ao lado (`nasyncloud serve`, o modo `Background` do serviço: interface sem browser) e mostra as páginas que ele serve em 127.0.0.1. São duas: `/panel`, o painel compacto junto ao ícone, e `/`, a interface completa numa janela normal. Lê o porto e o token do `ui.json`, e para saber se o serviço está vivo usa um GET `/api/ping` em HTTP simples, sobre `TcpStream`.
 
-As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar, o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state` e `/api/transfers` a cada 1,5 s enquanto está visível. As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
+As páginas pedem coisas à app navegando para `/app/<ação>`, e a app interceta essas navegações em `on_navigation`. Se o serviço não arrancar, o painel mostra uma página local (`desktop/dist/index.html`) com o motivo, que recebe por `initialization_script`. O painel lê `/api/state`, `/api/transfers` e `/api/conflicts` a cada 1,5 s enquanto está visível. A app lê `/api/conflicts` a cada 10 s (GET com corpo, no mesmo `TcpStream`) e notifica cada conflito novo uma vez (`watch_conflicts`). As transferências vêm de `activity.rs`: o motor chama `begin`/`progress`/`end` nos downloads (`run_download`) e nos uploads (`upload_file`, com uma guarda RAII), e as transferências do mesmo ficheiro com menos de 2 minutos de intervalo juntam-se numa só entrada.
 
 ## Motor Windows (`win.rs`)
 
@@ -133,6 +141,8 @@ hyper 1 (HTTP/1.1) em `127.0.0.1:ui_port`. A página é servida sem autenticaç�
 | `POST /api/pin` | `{path, on}` |
 | `POST /api/free` | `{path}` → `{freed}` |
 | `POST /api/refresh` | `{path}` |
+| `GET /api/conflicts` | `{conflicts: [{id, path, copy, at, mine_size, mine_mtime, nas}]}` |
+| `POST /api/conflicts` | `{id, keep: "mine" \| "nas" \| "both"}` → `{outcome: "done" \| "changed" \| "sending" \| "nas_gone" \| "gone"}` |
 | `POST /api/open` | Abre o caminho local com a aplicação por omissão |
 | `POST /api/quit` | Termina o processo |
 

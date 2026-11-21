@@ -23,7 +23,7 @@ NASYNCLOUD works like OneDrive, Dropbox or iCloud Drive, but your files live on 
 - 📌 **Keep offline**: choose the folders you always want with you, even without a connection.
 - 🧹 **Free up space**: remove the local copy of a file. It stays on the NAS and in the folder.
 - ✈️ **NAS out of reach?** Keep working with what's already on your computer. Your changes are sent when the NAS is back, even if you restarted the computer in the meantime.
-- 🛟 **Never lose work.** If a file changes here and on the NAS at the same time, you keep both versions.
+- 🛟 **Never lose work.** If a file changes here and on the NAS at the same time, you keep both versions, get a notification, and choose later which one stays.
 - 🔄 **Updates itself.** When a new version comes out, you get a notification and install it with one click.
 
 ## What you need
@@ -133,6 +133,9 @@ Yes, but don't open ports on your router. Use a VPN such as [Tailscale](https://
 
 **Do my files go to the internet?**
 No. They only travel between your computer and your NAS. Your password is kept in the system's secure storage (Keychain on a Mac, Credential Manager on Windows), and the NASYNCLOUD window can only be opened from your own computer.
+
+**A file changed here and on the NAS at the same time. What now?**
+Nothing is lost: your version is saved as `name (conflict DATE).ext`, and the NAS version keeps the original name. You get a notification, and the panel shows both versions side by side. Choose **Ficar com a minha** (Keep mine), **Ficar com a da NAS** (Keep the NAS one) or **As duas** (Keep both).
 
 **Something went wrong. Where can I see what happened?**
 In **Abrir o NASYNCLOUD → Atividade** (Activity). The full log is in `~/Library/Logs/nasyncloud.log` on a Mac and in `%LOCALAPPDATA%\nasyncloud\data\nasyncloud.log` on Windows. If you open an [issue](https://github.com/PedroGrilo/NASYNCLOUD/issues), please include it.

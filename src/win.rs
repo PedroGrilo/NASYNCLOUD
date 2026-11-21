@@ -34,6 +34,7 @@ use cloud_filter::usn::Usn;
 use cloud_filter::utility::WriteAt as _;
 use futures_util::StreamExt;
 use nasyncloud::config::Config;
+use nasyncloud::conflicts::{Conflict, Conflicts, Keep, Outcome};
 use nasyncloud::exclude::Excludes;
 use nasyncloud::remote::{self, norm_etag, Entry, Remote, RemoteError, Version};
 use nasyncloud::webdav::WebDav;
@@ -98,6 +99,8 @@ struct Engine {
     /// the shared folders, and things can only be created inside one of them.
     /// Never cleared: a later success at the top may just be "already there".
     top_closed: AtomicBool,
+    /// Files changed here and on the NAS, until the person chooses.
+    conflicts: Conflicts,
 }
 
 fn unix_now() -> i64 {
@@ -467,24 +470,25 @@ impl Engine {
             hydrate(path)?;
         }
         let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or_else(unix_now, |d| d.as_secs() as i64);
+        // Ok(Err(entry)): changed on both sides, `entry` is what the NAS has.
         let outcome = self.net(async {
             self.ensure_parents(&rel).await?;
             if let Some(current) = self.remote.stat(&rel).await? {
                 if !current.is_dir && current.version.size == meta.len() && current.version.mtime == mtime {
                     // Already there: our own upload, from a try that failed
                     // afterwards (only the local bookkeeping is missing).
-                    return Ok(Some(current.version));
+                    return Ok(Ok(current.version));
                 }
                 let ours = !current.is_dir && local.base.as_ref().is_some_and(|b| b.same(&current.version));
                 if !ours {
-                    return Ok(None); // changed on both sides
+                    return Ok(Err(current));
                 }
             }
-            self.put(&rel, path, meta.len(), mtime).await.map(Some)
+            self.put(&rel, path, meta.len(), mtime).await.map(Ok)
         });
         let version = match outcome {
-            Ok(Some(v)) => v,
-            Ok(None) => return self.keep_both(path, &rel),
+            Ok(Ok(v)) => v,
+            Ok(Err(theirs)) => return self.keep_both(path, &rel, meta.len(), mtime, theirs),
             Err(e) => return Err(anyhow!("upload of {rel} failed: {e}")),
         };
         // Only call it "in sync" if nobody touched it while it was uploading.
@@ -512,13 +516,16 @@ impl Engine {
     /// The file changed here and on the NAS: the local version gets a new
     /// name (and is uploaded under it), the NAS version comes back under the
     /// original one.
-    fn keep_both(&self, path: &Path, rel: &str) -> Result<()> {
+    fn keep_both(&self, path: &Path, rel: &str, size: u64, mtime: i64, theirs: Entry) -> Result<()> {
         let dir = path.parent().context("no parent")?;
         let name = remote::conflict_name(remote::split(rel).1, unix_now(), |c| dir.join(c).exists());
         let target = dir.join(&name);
         let new_rel = remote::join(remote::split(rel).0, &name);
         self.as_ours(&[rel, &new_rel], || fs::rename(path, &target))?;
         log::warn!("{rel} changed both here and on the NAS; keeping the local version as {name:?}");
+        if !theirs.is_dir {
+            self.conflicts.add(rel, &new_rel, size, mtime, theirs.version, unix_now());
+        }
         self.enqueue(target, Duration::ZERO);
         self.poke.lock().unwrap().insert(remote::split(rel).0.to_string());
         Ok(())
@@ -1078,6 +1085,8 @@ impl Mounted {
             log::warn!("only files already on this computer are available until the NAS is back");
         }
         ensure_registered(cfg, &root)?;
+        let state_dir = cfg.state_dir()?;
+        fs::create_dir_all(&state_dir).with_context(|| format!("cannot create {}", state_dir.display()))?;
         let engine = Arc::new(Engine {
             root_text: clean(&root),
             root: root.clone(),
@@ -1100,6 +1109,7 @@ impl Mounted {
             own_listing: AtomicUsize::new(0),
             refused: Mutex::default(),
             top_closed: AtomicBool::new(false),
+            conflicts: Conflicts::open(&state_dir),
         });
         if !engine.excludes.is_empty() {
             log::info!("kept on this computer only: {}", cfg.exclude.join(", "));
@@ -1159,7 +1169,18 @@ impl Mounted {
     pub fn info(&self) -> MountInfo {
         let e = &self.engine;
         let errors = e.failures.lock().unwrap().iter().take(10).map(|(p, (n, msg))| format!("{}: {msg} ({n}x)", e.rel(p).unwrap_or_default())).collect();
-        MountInfo { online: e.online.load(Ordering::SeqCst), pending_uploads: e.queue.lock().unwrap().len() as u64, uploading: 0, cache_bytes: None, cache_max: None, errors }
+        let conflicts = e.open_conflicts().len() as u64;
+        MountInfo { online: e.online.load(Ordering::SeqCst), pending_uploads: e.queue.lock().unwrap().len() as u64, uploading: 0, cache_bytes: None, cache_max: None, errors, conflicts }
+    }
+
+    /// Files changed here and on the NAS, waiting for a choice.
+    pub fn conflicts(&self) -> Vec<Conflict> {
+        self.engine.open_conflicts()
+    }
+
+    pub async fn resolve_conflict(&self, id: u64, keep: Keep) -> Result<Outcome> {
+        let e = self.engine.clone();
+        tokio::task::spawn_blocking(move || e.resolve_conflict(id, keep)).await?
     }
 
     pub async fn browse(&self, rel: &str) -> Result<Listing> {
@@ -1238,6 +1259,80 @@ impl Engine {
 
 /// What the interface needs: listings with states, pin and free.
 impl Engine {
+    /// Conflicts still waiting for a choice; those whose local copy is gone
+    /// (deleted or renamed by the person) are forgotten.
+    fn open_conflicts(&self) -> Vec<Conflict> {
+        self.conflicts.retain(|c| fs::symlink_metadata(self.abs(&c.copy)).is_ok());
+        self.conflicts.list()
+    }
+
+    /// Keeps one version (or both) of a file that changed here and on the NAS.
+    /// Only the NAS is changed here; the next look at the folder (asked for
+    /// at once) brings this computer in line, through the same paths as any
+    /// other change made on the NAS.
+    fn resolve_conflict(&self, id: u64, keep: Keep) -> Result<Outcome> {
+        let Some(c) = self.conflicts.get(id) else { return Ok(Outcome::Gone) };
+        if keep == Keep::Both {
+            self.conflicts.remove(id);
+            return Ok(Outcome::Done);
+        }
+        let copy_path = self.abs(&c.copy);
+        let Ok(meta) = fs::symlink_metadata(&copy_path) else {
+            self.conflicts.remove(id);
+            return Ok(Outcome::Gone);
+        };
+        let local = inspect(&copy_path, meta.len())?;
+        let now = self.net(self.remote.stat(&c.path)).map_err(|e| anyhow!("cannot look at {} on the NAS: {e}", c.path))?;
+        let dir = remote::split(&c.path).0.to_string();
+        match keep {
+            Keep::Nas => {
+                if !now.as_ref().is_some_and(|e| !e.is_dir) {
+                    return Ok(Outcome::NasGone);
+                }
+                if local.placeholder {
+                    match self.net(self.remote.delete(&c.copy, false)) {
+                        Ok(()) | Err(RemoteError::NotFound) => {}
+                        Err(e) => bail!("cannot delete {} on the NAS: {e}", c.copy),
+                    }
+                }
+                // If Windows says no now (the file is open), the next look at
+                // the folder removes it: it is gone from the NAS.
+                self.remove_ours(&copy_path, &c.copy, false);
+                log::info!("conflict on {}: kept the NAS version, deleted {}", c.path, c.copy);
+            }
+            Keep::Mine => {
+                if let Some(e) = &now {
+                    if e.is_dir {
+                        bail!("{} is now a folder on the NAS", c.path);
+                    }
+                    if !e.version.same(&c.nas) {
+                        // A third version: the person has to see it first.
+                        self.conflicts.set_nas(id, e.version.clone());
+                        return Ok(Outcome::Changed);
+                    }
+                }
+                let orig = self.abs(&c.path);
+                let edited_here = fs::symlink_metadata(&orig).is_ok_and(|m| !inspect(&orig, m.len()).is_ok_and(|l| l.placeholder && l.in_sync));
+                if edited_here {
+                    return Ok(Outcome::Changed); // the NAS version was edited here meanwhile
+                }
+                if !(local.placeholder && local.in_sync) {
+                    return Ok(Outcome::Sending);
+                }
+                // On the NAS, the local version takes the original name. Here,
+                // the original placeholder then gets the new content, and the
+                // copy (no longer on the NAS) goes away.
+                self.net(self.remote.rename(&c.copy, &c.path, false, true)).map_err(|e| anyhow!("cannot move {} to {} on the NAS: {e}", c.copy, c.path))?;
+                log::info!("conflict on {}: kept the version from this computer", c.path);
+            }
+            Keep::Both => unreachable!(),
+        }
+        self.conflicts.remove(id);
+        self.polled.lock().unwrap().insert(dir.clone(), Instant::now());
+        self.poke.lock().unwrap().insert(dir);
+        Ok(Outcome::Done)
+    }
+
     fn browse(&self, rel: &str) -> Result<Listing> {
         let dir = self.abs(rel);
         let meta = fs::metadata(&dir).with_context(|| format!("{rel}: not found"))?;

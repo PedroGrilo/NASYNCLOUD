@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0 — 2026-11-21
+
+- **Conflitos: escolhes com que versão ficas.** Quando um ficheiro muda aqui e na NAS ao mesmo tempo, continuam a ficar as duas versões logo à partida (a tua passa a `nome (conflict DATA).ext` e vai para a NAS, a da NAS fica com o nome original), sem nada parar à espera de ninguém. Agora:
+  - a app mostra uma notificação («relatorio.docx mudou aqui e na NAS…», ou «3 ficheiros em «Documentos» mudaram…» quando são vários);
+  - o painel mostra os conflitos em cima, com as duas versões lado a lado (onde mudou, quando, tamanho) e três botões: **Ficar com a minha** (a tua volta ao nome original e substitui a da NAS), **Ficar com a da NAS** (a tua cópia é apagada) e **As duas** (fica tudo como está). Com vários, «Todas: a minha» e «Todas: a da NAS». O olho abre as duas versões para comparar;
+  - se a versão da NAS mudar outra vez antes de escolheres, «Ficar com a minha» não a substitui às cegas: avisa, mostra a data nova e só substitui se escolheres de novo;
+  - a lista sobrevive a reinícios (`conflicts.json`, ao lado do índice). Uma cópia que apagues ou mudes de nome à mão sai da lista sozinha;
+  - a interface principal mostra um aviso em Estado com «Escolher», que abre o painel.
+- API: `GET /api/conflicts` e `POST /api/conflicts` (`{id, keep: "mine" | "nas" | "both"}`); `MountInfo.conflicts` com o número de conflitos por resolver.
+- Windows: a escolha muda só a NAS, e a volta seguinte pela pasta (pedida logo) acerta este computador. «Ficar com a minha» espera que a tua versão já esteja na NAS. Compilado para Windows; não correu num Windows.
+
 ## 1.5.2 — 2026-11-21
 
 - **Windows: o que está no Ambiente de trabalho já não fica por enviar com «O recurso pedido está a ser utilizado. (0x800700AA)».** O motor abria ficheiros e pastas pedindo um «oplock» ao Windows, que o recusa enquanto outro programa tiver o item aberto, e o Explorador tem sempre aberto o Ambiente de trabalho e o que lá está. Agora usa handles normais para ver o estado de um item, para adotar uma pasta, para marcar um ficheiro como enviado e para «Manter sempre neste dispositivo» e «Libertar espaço». Só a troca do conteúdo de um ficheiro que mudou na NAS continua a precisar do ficheiro livre, e volta a tentar na volta seguinte.

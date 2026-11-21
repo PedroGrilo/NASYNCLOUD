@@ -2,11 +2,13 @@
 //!
 //! * `remote` / `webdav`: talking to the server.
 //! * `exclude`: what this computer keeps to itself (`.git`, `node_modules`...).
+//! * `conflicts`: files changed here and on the NAS, until the person chooses.
 //! * `vfs` (Linux/macOS): the on-demand engine behind the FUSE mount.
 //! * The Windows engine (Cloud Files API) lives in the binary crate.
 
 pub mod activity;
 pub mod config;
+pub mod conflicts;
 pub mod exclude;
 pub mod remote;
 pub mod webdav;

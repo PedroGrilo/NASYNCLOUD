@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{pattern, wait_for, TestServer, PASS, USER};
+use nasyncloud::conflicts::{Keep, Outcome};
 use nasyncloud::exclude::Excludes;
 use nasyncloud::vfs::{NodeId, Pin, Vfs, VfsError, VfsOptions, ROOT};
 use nasyncloud::webdav::WebDav;
@@ -255,6 +256,79 @@ async fn remote_changes_and_conflicts() {
     assert_eq!(names(&vfs, ROOT).await, [conflict.as_str(), "f.txt", "h.txt", "new.txt"]);
     let f2 = id(&vfs, "f.txt").await;
     assert_eq!(read_all(&vfs, f2).await, b"remote edit!!");
+    vfs.shutdown().await;
+}
+
+/// Makes `name` conflict: edited here while offline, and on the NAS meanwhile.
+async fn make_conflict(srv: &TestServer, vfs: &Arc<Vfs>, name: &str, here: &[u8], there: &[u8]) {
+    srv.set_down(true);
+    poke(vfs).await;
+    put(vfs, ROOT, name, here).await;
+    srv.write(name, there);
+    srv.set_down(false);
+    poke(vfs).await;
+    assert!(wait_for(10, || vfs.pending_uploads() == 0).await, "{:?}", vfs.info());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conflict_choices() {
+    let srv = TestServer::start().await;
+    for f in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+        srv.write(f, b"v1");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let vfs = open(&srv, dir.path(), |_| {}).await;
+    for f in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+        let i = id(&vfs, f).await;
+        assert_eq!(read_all(&vfs, i).await, b"v1");
+    }
+    make_conflict(&srv, &vfs, "a.txt", b"mine a", b"theirs a").await;
+    make_conflict(&srv, &vfs, "b.txt", b"mine b", b"theirs b").await;
+    make_conflict(&srv, &vfs, "c.txt", b"mine c", b"theirs c").await;
+    make_conflict(&srv, &vfs, "d.txt", b"mine d", b"theirs d").await;
+    let list = vfs.conflicts();
+    assert_eq!(list.len(), 4, "{list:?}");
+    let of = |p: &str| list.iter().find(|c| c.path == p).unwrap().clone();
+    let (a, b, c, d) = (of("a.txt"), of("b.txt"), of("c.txt"), of("d.txt"));
+    assert!(a.copy.starts_with("a (conflict ") && a.mine_size == 6 && a.nas.size == 8, "{a:?}");
+    assert_eq!(srv.read(&a.copy), b"mine a");
+
+    // Mine: the local version goes back to the original name, on the NAS too.
+    assert_eq!(vfs.resolve_conflict(a.id, Keep::Mine).await.unwrap(), Outcome::Done);
+    assert_eq!(srv.read("a.txt"), b"mine a");
+    assert!(!srv.exists(&a.copy));
+    let ai = id(&vfs, "a.txt").await;
+    assert_eq!(read_all(&vfs, ai).await, b"mine a");
+
+    // NAS: the local copy is deleted, here and there.
+    assert_eq!(vfs.resolve_conflict(b.id, Keep::Nas).await.unwrap(), Outcome::Done);
+    assert_eq!(srv.read("b.txt"), b"theirs b");
+    assert!(!srv.exists(&b.copy));
+
+    // Mine, but the NAS version changed again: nothing happens until asked again.
+    srv.write("c.txt", b"third version");
+    assert_eq!(vfs.resolve_conflict(c.id, Keep::Mine).await.unwrap(), Outcome::Changed);
+    assert_eq!(srv.read("c.txt"), b"third version");
+    assert_eq!(vfs.conflicts().iter().find(|x| x.id == c.id).unwrap().nas.size, 13);
+    assert_eq!(vfs.resolve_conflict(c.id, Keep::Mine).await.unwrap(), Outcome::Done);
+    assert_eq!(srv.read("c.txt"), b"mine c");
+
+    // Both: nothing changes. A copy deleted by hand leaves the list by itself.
+    assert_eq!(vfs.resolve_conflict(d.id, Keep::Both).await.unwrap(), Outcome::Done);
+    assert!(srv.exists(&d.copy) && srv.exists("d.txt"));
+    assert!(vfs.conflicts().is_empty());
+    make_conflict(&srv, &vfs, "d.txt", b"mine d2", b"theirs d2").await;
+    let d2 = vfs.conflicts().pop().unwrap();
+    vfs.unlink(ROOT, d2.copy.as_str()).await.unwrap();
+    assert!(vfs.conflicts().is_empty());
+    assert_eq!(vfs.resolve_conflict(d2.id, Keep::Mine).await.unwrap(), Outcome::Gone);
+
+    // Remembered across restarts.
+    make_conflict(&srv, &vfs, "b.txt", b"mine b2", b"theirs b2").await;
+    vfs.shutdown().await;
+    drop(vfs);
+    let vfs = open(&srv, dir.path(), |_| {}).await;
+    assert_eq!(vfs.conflicts().len(), 1);
     vfs.shutdown().await;
 }
 
