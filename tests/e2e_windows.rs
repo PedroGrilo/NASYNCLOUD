@@ -304,6 +304,14 @@ fn in_sync(path: &Path) -> Result<Option<bool>, String> {
     Placeholder::from(file).info().map(|i| i.map(|i| i.is_in_sync())).map_err(|e| e.to_string())
 }
 
+/// The placeholder flags of an item, for the record (not a verdict).
+fn flags(path: &Path) -> String {
+    match fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path) {
+        Ok(file) => format!("{:?}", Placeholder::from(file).state()),
+        Err(e) => e.to_string(),
+    }
+}
+
 /// The item is a synced one for Windows (a placeholder, marked in sync).
 fn adopted(path: &Path) -> Result<(), String> {
     match in_sync(path)? {
@@ -544,7 +552,9 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
         names.sort();
         Ok(names)
     };
+    println!("       (the sync folder before anything lists it: {})", flags(&svc.root));
     c.check("the interface lists the top before anyone opened the folder", listed("").and_then(|l| expect(l == ["Docs", "Media"], || format!("{l:?}"))));
+    println!("       (the sync folder now: {}; Docs: {})", flags(&svc.root), flags(&svc.path("Docs")));
     c.check("...and a folder nobody opened yet", listed("Docs/sub").and_then(|l| expect(l == ["nota.txt"], || format!("{l:?}"))));
     let top = names(&svc.root);
     c.check("top-level listing", expect(top == ["Docs", "Media"], || format!("{top:?}")));
@@ -572,9 +582,21 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     println!("== changes to files of the NAS");
     let longer = format!("{numbers}linha extra\n");
     let append = |rel: &str| fs::OpenOptions::new().append(true).open(svc.path(rel)).and_then(|mut f| f.write_all(b"linha extra\n")).map_err(|e| e.to_string());
-    if c.check("append to an online-only file (a handle that can only append)", append("Docs/acrescentar.txt")) {
-        synced(c, "appended, online-only", &svc, &nas, "Docs/acrescentar.txt", Some(longer.as_bytes()));
+    // A handle that can only append (FILE_APPEND_DATA) is what programs
+    // written in Go or Rust add to a file with. On an online-only file,
+    // Windows downloads the file and then fails that write with error 1450
+    // (seen on the runner, Windows Server 2025 build 26100; the engine has
+    // done its part by then). Whatever Windows does, nothing may be lost
+    // quietly: the program is told, the file is intact, the next try works.
+    match append("Docs/acrescentar.txt") {
+        Ok(()) => c.ok("append to an online-only file (a handle that can only append)"),
+        Err(e) => {
+            println!("       (Windows refused the append to an online-only file: {e})");
+            c.is("append to an online-only file, refused by Windows: the file is intact", fs::read(svc.path("Docs/acrescentar.txt")).is_ok_and(|d| d == numbers.as_bytes()));
+            c.check("...and the next try works", append("Docs/acrescentar.txt"));
+        }
     }
+    synced(c, "appended, online-only", &svc, &nas, "Docs/acrescentar.txt", Some(longer.as_bytes()));
     let amend = fs::OpenOptions::new().read(true).write(true).open(svc.path("Docs/emendar.txt")).and_then(|mut f| f.write_all(b"X")).map_err(|e| e.to_string());
     if c.check("write at the start of an online-only file", amend) {
         synced(c, "amended, online-only", &svc, &nas, "Docs/emendar.txt", Some(format!("X{}", &numbers[1..]).as_bytes()));

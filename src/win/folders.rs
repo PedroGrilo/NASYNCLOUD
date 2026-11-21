@@ -191,7 +191,11 @@ impl Engine {
             });
         }
         // Where they can go: the top (unless the NAS refused a folder there)
-        // and the folders the NAS has at the top.
+        // and the folders the NAS has at the top (without the NAS, the ones
+        // already here).
+        if let Err(e) = self.populate("") {
+            log::debug!("{e:#}");
+        }
         let mut places = Vec::new();
         if !self.top_closed.load(Ordering::SeqCst) {
             places.push(String::new());
@@ -233,13 +237,12 @@ impl Engine {
         }
         // Windows must know what the NAS has in there before anything goes in,
         // or a name could exist twice.
-        self.listing(|| fs::read_dir(&self.root).map(|it| it.count()))?;
+        self.populate(place)?;
         if !place.is_empty() {
             let dir = self.abs(place);
             if !inspect(&dir, 0).is_ok_and(|l| l.placeholder) || !dir.is_dir() {
                 bail!("{place} is not a folder of the NAS");
             }
-            self.listing(|| fs::read_dir(&dir).map(|it| it.count()))?;
         }
         if fs::symlink_metadata(&to).is_ok_and(|m| !m.is_dir()) {
             bail!("{} already exists and is not a folder", to.display());
@@ -274,7 +277,7 @@ impl Engine {
         if inspect(&to, 0).is_ok_and(|l| !l.placeholder) {
             self.enqueue(to.clone(), Duration::ZERO); // the worker adopts it: it is on the NAS already
         }
-        self.listing(|| fs::read_dir(&to).map(|it| it.count()))?;
+        self.populate_one(&rel)?;
         // Leaving a place inside the sync folder (one the NAS refused).
         let leaving = self.rel(&from).filter(|r| !r.is_empty());
         self.move_items(&from, &to, leaving.is_some(), true, &mut report);
