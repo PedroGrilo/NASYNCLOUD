@@ -195,6 +195,9 @@ struct SaveReq {
 struct FolderReq {
     key: String,
     on: bool,
+    /// Folder of the NAS to put it in (the top when absent).
+    #[serde(default)]
+    place: String,
 }
 
 #[derive(Deserialize)]
@@ -366,11 +369,11 @@ impl Handler {
             }
             // Desktop, Documents and Pictures on the NAS (Known Folder Move).
             #[cfg(windows)]
-            ("GET", "/api/folders") => json!({ "folders": svc.mounted()?.folders().await? }),
+            ("GET", "/api/folders") => serde_json::to_value(svc.mounted()?.folders().await?)?,
             #[cfg(windows)]
             ("POST", "/api/folders") => {
                 let r: FolderReq = serde_json::from_value(body)?;
-                serde_json::to_value(svc.mounted()?.set_folder(&r.key, r.on).await?)?
+                serde_json::to_value(svc.mounted()?.set_folder(&r.key, r.on, &clean_rel(&r.place)?).await?)?
             }
             ("POST", "/api/open") => {
                 let r: PathReq = serde_json::from_value(body)?;

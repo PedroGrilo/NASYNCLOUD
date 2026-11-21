@@ -43,7 +43,7 @@ use tokio::sync::watch;
 use crate::service::{EntryView, Listing, MountInfo};
 
 mod folders;
-pub use folders::{FolderView, MoveReport};
+pub use folders::{Folders, MoveReport};
 
 const ATTR_PINNED: u32 = 0x0008_0000;
 const ATTR_UNPINNED: u32 = 0x0010_0000;
@@ -91,6 +91,13 @@ struct Engine {
     watch_lost: AtomicBool,
     /// > 0 while we enumerate folders on purpose (see `fetch_placeholders`).
     own_listing: AtomicUsize,
+    /// Folders (lowercase) the NAS refused to create.
+    refused: Mutex<HashSet<String>>,
+    /// The NAS refused a folder at the top. That is what happens when the
+    /// address is the NAS itself (`http://nas:5005/`): there UGOS only lists
+    /// the shared folders, and things can only be created inside one of them.
+    /// Never cleared: a later success at the top may just be "already there".
+    top_closed: AtomicBool,
 }
 
 fn unix_now() -> i64 {
@@ -149,6 +156,24 @@ fn cloud_error(e: &RemoteError) -> CloudErrorKind {
         RemoteError::Unauthorized | RemoteError::Forbidden => CloudErrorKind::AccessDenied,
         _ => CloudErrorKind::Unsuccessful,
     }
+}
+
+/// The NAS answered, and said no: asking again will not change that.
+fn refusal(e: &RemoteError) -> bool {
+    matches!(e, RemoteError::Precondition(_) | RemoteError::Forbidden | RemoteError::Http(400 | 405 | 501, _))
+}
+
+/// A refusal to create the folder `dir`, said so that it points at the folder.
+fn cannot_create(dir: &str, e: RemoteError) -> RemoteError {
+    if !refusal(&e) {
+        return e;
+    }
+    let why = match &e {
+        RemoteError::Precondition(why) => why.clone(),
+        other => other.to_string(),
+    };
+    let hint = if dir.contains('/') { "" } else { ": with the address of the NAS itself, things can only be created inside its shared folders" };
+    RemoteError::Precondition(format!("the NAS does not allow the folder {dir:?} ({why}){hint}"))
 }
 
 fn api(e: impl std::fmt::Display) -> RemoteError {
@@ -293,10 +318,35 @@ impl Engine {
             if self.known_dirs.lock().unwrap().contains(&dir) {
                 continue;
             }
-            self.remote.mkdir(&dir).await?;
-            self.known_dirs.lock().unwrap().insert(dir);
+            self.make_dir(&dir).await?;
         }
         Ok(())
+    }
+
+    /// Creates one folder on the NAS (its parent is there), remembering
+    /// whether the NAS allowed it.
+    async fn make_dir(&self, dir: &str) -> Result<(), RemoteError> {
+        match self.remote.mkdir(dir).await {
+            Ok(()) => {
+                self.known_dirs.lock().unwrap().insert(dir.to_string());
+                self.refused.lock().unwrap().remove(&dir.to_lowercase());
+                Ok(())
+            }
+            Err(e) => {
+                if refusal(&e) {
+                    self.refused.lock().unwrap().insert(dir.to_lowercase());
+                    match dir.rfind('/') {
+                        None => self.top_closed.store(true, Ordering::SeqCst),
+                        // UGOS also says 405 (not 409) when the parent is gone:
+                        // the next try checks the parent again.
+                        Some(i) => {
+                            self.known_dirs.lock().unwrap().remove(&dir[..i]);
+                        }
+                    }
+                }
+                Err(cannot_create(dir, e))
+            }
+        }
     }
 
     /// Uploads a local file (to a temporary name first, when the server allows
@@ -348,9 +398,8 @@ impl Engine {
                 // A folder created here: create it on the NAS and adopt it.
                 self.net(async {
                     self.ensure_parents(&rel).await?;
-                    self.remote.mkdir(&rel).await
+                    self.make_dir(&rel).await
                 })?;
-                self.known_dirs.lock().unwrap().insert(rel.clone());
                 Placeholder::options().write_access().open(path)?.convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(blob(&Version::default())), NO_USN)?;
                 log::info!("created folder {rel} on the NAS");
                 // Whatever was put in it before we got here needs a look too.
@@ -1005,6 +1054,8 @@ impl Mounted {
             stop: watch::channel(false).0,
             watch_lost: AtomicBool::new(false),
             own_listing: AtomicUsize::new(0),
+            refused: Mutex::default(),
+            top_closed: AtomicBool::new(false),
         });
         if !engine.excludes.is_empty() {
             log::info!("kept on this computer only: {}", cfg.exclude.join(", "));
@@ -1088,17 +1139,19 @@ impl Mounted {
         Ok(())
     }
 
-    /// Desktop, Documents and Pictures: where they are, and whether on the NAS.
-    pub async fn folders(&self) -> Result<Vec<FolderView>> {
+    /// Desktop, Documents and Pictures: where they are, whether on the NAS,
+    /// and where on the NAS they can go.
+    pub async fn folders(&self) -> Result<Folders> {
         let e = self.engine.clone();
         tokio::task::spawn_blocking(move || e.folders()).await?
     }
 
-    /// Moves a known folder (`desktop`, `documents`, `pictures`) into the sync
-    /// folder, or (`on == false`) points it back at its usual place.
-    pub async fn set_folder(&self, key: &str, on: bool) -> Result<MoveReport> {
-        let (e, key) = (self.engine.clone(), key.to_string());
-        tokio::task::spawn_blocking(move || if on { e.move_folder(&key) } else { e.restore_folder(&key).map(|from| MoveReport { from, ..Default::default() }) }).await?
+    /// Moves a known folder (`desktop`, `documents`, `pictures`) into `place`
+    /// (a folder of the NAS, `""` for the top) in the sync folder, or
+    /// (`on == false`) points it back at its usual place.
+    pub async fn set_folder(&self, key: &str, on: bool, place: &str) -> Result<MoveReport> {
+        let (e, key, place) = (self.engine.clone(), key.to_string(), place.to_string());
+        tokio::task::spawn_blocking(move || if on { e.move_folder(&key, &place) } else { e.restore_folder(&key) }).await?
     }
 }
 

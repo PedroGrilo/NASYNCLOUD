@@ -13,6 +13,7 @@ use std::fs;
 use std::os::windows::ffi::{OsStrExt as _, OsStringExt as _};
 use std::os::windows::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -24,7 +25,7 @@ use windows_sys::Win32::UI::Shell::{
     SHChangeNotify, SHGetKnownFolderPath, SHSetKnownFolderPath, FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Pictures, KF_FLAG_DEFAULT_PATH, KF_FLAG_DONT_VERIFY, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
 };
 
-use super::{clean, unix_now, Engine};
+use super::{clean, inspect, refusal, unix_now, Engine};
 
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
@@ -54,8 +55,26 @@ pub struct FolderView {
     pub path: String,
     /// Whether that is inside the sync folder.
     pub on_nas: bool,
-    /// Where it goes (or is) in the sync folder.
-    pub nas_path: String,
+    /// The folder of the NAS it is in (`""` is the top), when `on_nas`.
+    pub place: String,
+    /// It is in the sync folder, but the NAS refused to create it there, so
+    /// nothing in it can be sent: it has to go somewhere else.
+    pub refused: bool,
+}
+
+/// The known folders, and where on the NAS they can go.
+#[derive(Clone, Debug, Serialize)]
+pub struct Folders {
+    pub folders: Vec<FolderView>,
+    /// The sync folder.
+    pub root: String,
+    /// Folders of the NAS to choose from (`""` is the top). The top is left
+    /// out once the NAS has refused a folder there: with the address of the
+    /// NAS itself (`http://nas:5005/`), UGOS shows the list of shared folders,
+    /// and only inside one of them can anything be created.
+    pub places: Vec<String>,
+    /// The one to suggest, when there is an obvious one.
+    pub place: Option<String>,
 }
 
 /// What moving a folder did.
@@ -66,6 +85,8 @@ pub struct MoveReport {
     pub left: Vec<String>,
     pub from: String,
     pub to: String,
+    /// The NAS does not allow the folder in that place: nothing was moved.
+    pub refused: bool,
 }
 
 fn known_path(id: &GUID, flags: i32) -> Result<PathBuf> {
@@ -104,6 +125,12 @@ fn set_known_path(id: &GUID, path: &Path) -> Result<()> {
 fn under(root: &Path, path: &Path) -> bool {
     let (root, path) = (clean(root).to_lowercase(), clean(path).to_lowercase());
     path == root || path.strip_prefix(&root).is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// Whether the relative path `rel` is `dir` or inside it.
+fn within(dir: &str, rel: &str) -> bool {
+    let (dir, rel) = (dir.to_lowercase(), rel.to_lowercase());
+    rel == dir || rel.strip_prefix(&dir).is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Something with a reparse point in it (a OneDrive file, a link) is copied
@@ -146,88 +173,205 @@ fn move_item(from: &Path, to: &Path) -> Result<()> {
 }
 
 impl Engine {
-    pub(super) fn folders(&self) -> Result<Vec<FolderView>> {
-        KNOWN
-            .iter()
-            .map(|k| {
-                let path = known_path(&k.id, KF_FLAG_DONT_VERIFY)?;
-                Ok(FolderView { key: k.key.into(), name: k.name.into(), on_nas: under(&self.root, &path), path: clean(&path), nas_path: clean(&self.root.join(k.name)) })
-            })
-            .collect()
+    pub(super) fn folders(&self) -> Result<Folders> {
+        let refused = self.refused.lock().unwrap().clone();
+        let mut folders = Vec::new();
+        let mut taken = Vec::new();
+        for k in &KNOWN {
+            let path = known_path(&k.id, KF_FLAG_DONT_VERIFY)?;
+            let rel = self.rel(&path).filter(|r| !r.is_empty());
+            taken.extend(rel.clone());
+            folders.push(FolderView {
+                key: k.key.into(),
+                name: k.name.into(),
+                on_nas: under(&self.root, &path),
+                path: clean(&path),
+                place: rel.as_deref().map(|r| remote::split(r).0.to_string()).unwrap_or_default(),
+                refused: rel.is_some_and(|r| refused.contains(&r.to_lowercase())),
+            });
+        }
+        // Where they can go: the top (unless the NAS refused a folder there)
+        // and the folders the NAS has at the top.
+        let mut places = Vec::new();
+        if !self.top_closed.load(Ordering::SeqCst) {
+            places.push(String::new());
+        }
+        let mut tops: Vec<String> = self
+            .listing(|| fs::read_dir(&self.root).map(|it| it.flatten().collect::<Vec<_>>()))?
+            .into_iter()
+            .filter(|e| e.metadata().is_ok_and(|m| m.is_dir()))
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+            // Not one of these folders itself, nor a folder that only exists here.
+            .filter(|(name, path)| !taken.iter().any(|t| within(t, name)) && !self.ignored(name, true) && inspect(path, 0).is_ok_and(|l| l.placeholder))
+            .map(|(name, _)| name)
+            .collect();
+        tops.sort_by_key(|n| n.to_lowercase());
+        places.extend(tops);
+        // Next to the ones already there; otherwise the top, where it can be used.
+        let place = folders.iter().find(|f| f.on_nas && !f.refused && places.contains(&f.place)).map(|f| f.place.clone()).or_else(|| places.first().filter(|p| p.is_empty() || places.len() == 1).cloned());
+        Ok(Folders { folders, root: self.root_text.clone(), places, place })
     }
 
-    /// Moves what is in the known folder into the sync folder and points
-    /// Windows at it there.
-    pub(super) fn move_folder(&self, key: &str) -> Result<MoveReport> {
+    /// Moves what is in the known folder into `place` (a folder of the NAS,
+    /// `""` for the top) in the sync folder and points Windows at it there.
+    /// A known folder that is already in the sync folder moves the same way:
+    /// that is how one gets out of a place where the NAS refused it.
+    pub(super) fn move_folder(&self, key: &str, place: &str) -> Result<MoveReport> {
         let k = known(key)?;
         let from = known_path(&k.id, KF_FLAG_DONT_VERIFY)?;
-        let to = self.root.join(k.name);
+        let rel = remote::join(place, k.name);
+        let to = self.abs(&rel);
         let mut report = MoveReport { from: clean(&from), to: clean(&to), ..Default::default() };
-        if under(&self.root, &from) {
+        if report.from.to_lowercase() == report.to.to_lowercase() {
             return Ok(report); // already there
+        }
+        for other in &KNOWN {
+            let at = known_path(&other.id, KF_FLAG_DONT_VERIFY)?;
+            if self.rel(&at).filter(|r| !r.is_empty()).is_some_and(|r| within(&r, place)) {
+                bail!("{place} is (in) the folder {}: choose another place", other.name);
+            }
         }
         // Windows must know what the NAS has in there before anything goes in,
         // or a name could exist twice.
         self.listing(|| fs::read_dir(&self.root).map(|it| it.count()))?;
-        match fs::metadata(&to) {
-            Ok(m) if m.is_dir() => {
-                self.listing(|| fs::read_dir(&to).map(|it| it.count()))?;
+        if !place.is_empty() {
+            let dir = self.abs(place);
+            if !inspect(&dir, 0).is_ok_and(|l| l.placeholder) || !dir.is_dir() {
+                bail!("{place} is not a folder of the NAS");
             }
-            Ok(_) => bail!("{} already exists and is not a folder", to.display()),
-            Err(_) => {
-                fs::create_dir(&to).with_context(|| format!("cannot create {}", to.display()))?;
-                self.enqueue(to.clone(), Duration::ZERO);
+            self.listing(|| fs::read_dir(&dir).map(|it| it.count()))?;
+        }
+        if fs::symlink_metadata(&to).is_ok_and(|m| !m.is_dir()) {
+            bail!("{} already exists and is not a folder", to.display());
+        }
+        // The NAS gets the folder before anything moves. Where it refuses
+        // (at the top of `http://nas:5005/`, UGOS only has the list of shared
+        // folders and answers 405), nothing has been touched yet.
+        if let Err(e) = self.net(async {
+            self.ensure_parents(&rel).await?;
+            self.make_dir(&rel).await
+        }) {
+            if !refusal(&e) {
+                bail!("cannot create {rel} on the NAS: {e}");
+            }
+            log::warn!("{e}; nothing was moved");
+            report.refused = true;
+            return Ok(report);
+        }
+        if !to.is_dir() {
+            match fs::create_dir(&to) {
+                Ok(()) => {}
+                // The worker saw it on the NAS first.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && to.is_dir() => {}
+                Err(e) => return Err(e).with_context(|| format!("cannot create {}", to.display())),
             }
         }
-        if from.is_dir() {
-            for item in fs::read_dir(&from)?.flatten() {
-                let name = item.file_name().to_string_lossy().into_owned();
-                let src = item.path();
-                // `desktop.ini` gives the old folder its translated name; links
-                // like "My Music" in Documents point elsewhere: all stay.
-                if matches!(name.to_ascii_lowercase().as_str(), "desktop.ini" | "thumbs.db") || fs::symlink_metadata(&src).is_ok_and(|m| m.file_type().is_symlink()) {
-                    continue;
-                }
-                let mut dest = to.join(&name);
-                if fs::symlink_metadata(&dest).is_ok() {
-                    dest = to.join(remote::conflict_name(&name, unix_now(), |c| to.join(c).exists()));
-                }
-                match move_item(&src, &dest) {
-                    Ok(()) => {
-                        report.moved += 1;
-                        self.enqueue(dest, Duration::ZERO);
-                    }
-                    Err(e) => {
-                        log::warn!("could not move {} to the NAS: {e:#}", src.display());
-                        report.left.push(format!("{name}: {e:#}"));
-                    }
-                }
-            }
+        if inspect(&to, 0).is_ok_and(|l| !l.placeholder) {
+            self.enqueue(to.clone(), Duration::ZERO); // the worker adopts it: it is on the NAS already
         }
+        self.listing(|| fs::read_dir(&to).map(|it| it.count()))?;
+        // Leaving a place inside the sync folder (one the NAS refused).
+        let leaving = self.rel(&from).filter(|r| !r.is_empty());
+        self.move_items(&from, &to, leaving.is_some(), true, &mut report);
         set_known_path(&k.id, &to)?;
         log::info!("{} is now on the NAS, in {} ({} item(s) moved, {} left in {})", k.name, to.display(), report.moved, report.left.len(), from.display());
+        if let Some(old) = leaving {
+            self.leave(&from, &old);
+        }
         Ok(report)
     }
 
-    /// Points the known folder back at its default place (empty); the files
-    /// stay on the NAS. Returns where they are.
-    pub(super) fn restore_folder(&self, key: &str) -> Result<String> {
+    /// Moves what is in `from` into `to`, counting in `report`. `tidy` also
+    /// removes the shell's own litter from `from` (when that folder is ours to
+    /// remove afterwards); `upload` queues what arrives to be sent.
+    fn move_items(&self, from: &Path, to: &Path, tidy: bool, upload: bool, report: &mut MoveReport) {
+        let items = match fs::read_dir(from) {
+            Ok(items) => items,
+            Err(e) => {
+                if from.exists() {
+                    log::warn!("cannot read {}: {e}", from.display());
+                    report.left.push(format!("{}: {e}", from.display()));
+                }
+                return;
+            }
+        };
+        for item in items.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            let src = item.path();
+            // `desktop.ini` gives the old folder its translated name; links
+            // like "My Music" in Documents point elsewhere: all stay.
+            if matches!(name.to_ascii_lowercase().as_str(), "desktop.ini" | "thumbs.db") {
+                if tidy {
+                    let _ = fs::remove_file(&src);
+                }
+                continue;
+            }
+            if fs::symlink_metadata(&src).is_ok_and(|m| m.file_type().is_symlink()) {
+                continue;
+            }
+            let mut dest = to.join(&name);
+            if fs::symlink_metadata(&dest).is_ok() {
+                dest = to.join(remote::conflict_name(&name, unix_now(), |c| to.join(c).exists()));
+            }
+            match move_item(&src, &dest) {
+                Ok(()) => {
+                    report.moved += 1;
+                    if upload {
+                        self.enqueue(dest, Duration::ZERO);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("could not move {}: {e:#}", src.display());
+                    report.left.push(format!("{name}: {e:#}"));
+                }
+            }
+        }
+    }
+
+    /// A known folder has left `from` (`rel` in the sync folder), typically a
+    /// place where it never made it to the NAS: the folder goes away from
+    /// here, with what was queued or had failed for it (nothing is deleted on
+    /// the NAS). Anything that could not be moved keeps it here (and is in
+    /// the report).
+    fn leave(&self, from: &Path, rel: &str) {
+        self.refused.lock().unwrap().remove(&rel.to_lowercase());
+        self.queue.lock().unwrap().retain(|p, _| !under(from, p));
+        self.failures.lock().unwrap().retain(|p, _| !under(from, p));
+        if let Err(e) = self.as_ours(&[rel], || fs::remove_dir(from)) {
+            log::info!("{} stays, not empty yet: {e}", from.display());
+        }
+    }
+
+    /// Points the known folder back at its default place. The files stay on
+    /// the NAS (as OneDrive does), so that place is empty; unless the NAS had
+    /// refused the folder (`refused` in the report): then they never got
+    /// there, and go back with it.
+    pub(super) fn restore_folder(&self, key: &str) -> Result<MoveReport> {
         let k = known(key)?;
         let now = known_path(&k.id, KF_FLAG_DONT_VERIFY)?;
         if !under(&self.root, &now) {
             bail!("{} is not on the NAS", k.name);
         }
-        restore(k)?;
-        Ok(clean(&now))
+        // Refused, or (before the worker got to it in this run) never adopted.
+        let stranded = self.rel(&now).filter(|r| !r.is_empty() && (self.refused.lock().unwrap().contains(&r.to_lowercase()) || inspect(&now, 0).is_ok_and(|l| !l.placeholder)));
+        let default = restore(k)?;
+        let mut report = MoveReport { from: clean(&now), to: clean(&default), refused: stranded.is_some(), ..Default::default() };
+        if let Some(rel) = stranded {
+            // Marked as ours: leaving the sync folder must not delete anything on the NAS.
+            self.as_ours(&[&rel], || self.move_items(&now, &default, true, false, &mut report));
+            self.leave(&now, &rel);
+        }
+        Ok(report)
     }
 }
 
-fn restore(k: &Known) -> Result<()> {
+/// Returns the default place, where the folder now is.
+fn restore(k: &Known) -> Result<PathBuf> {
     let default = known_path(&k.id, KF_FLAG_DEFAULT_PATH | KF_FLAG_DONT_VERIFY)?;
     fs::create_dir_all(&default).with_context(|| format!("cannot create {}", default.display()))?;
     set_known_path(&k.id, &default)?;
     log::info!("{} is back in {}", k.name, default.display());
-    Ok(())
+    Ok(default)
 }
 
 /// Before the sync folder stops being one: every known folder inside it goes

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1 — 2026-11-21
+
+- **Windows: «Guardar na NAS» já não deixa o Ambiente de trabalho, os Documentos ou as Imagens num sítio onde a NAS não os aceita.** Com o endereço da NAS inteira (`http://IP:5005/`, sem o nome de uma pasta partilhada), o cimo da pasta da NAS é só a lista das pastas partilhadas da UGOS, e a NAS responde «405 Method Not Allowed» a quem tenta criar lá uma pasta. A 1.5.0 punha lá a pasta à mesma: nada era enviado e os Problemas enchiam-se de «refused by the server: HTTP 405 Method Not Allowed». Agora:
+  - a pasta é criada na NAS antes de se mexer em qualquer ficheiro. Se a NAS recusar, nada é movido e a interface diz porquê;
+  - em Definições escolhe-se a «Pasta da NAS onde ficam»: o cimo, quando a NAS deixa, ou uma das pastas que ela lá tem (as pastas partilhadas);
+  - uma pasta que a 1.5.0 deixou no cimo aparece como «Não enviada», com «Mover para lá» (passa tudo para a pasta escolhida e começa a enviar) e «Voltar ao sítio habitual» (devolve a pasta com os ficheiros, que nunca chegaram à NAS);
+  - o erro passa a dizer que pasta a NAS recusou (`the NAS does not allow the folder "…"`), em vez de só «HTTP 405».
+
 ## 1.5.0 — 2026-11-20
 
 - **Windows: Ambiente de trabalho, Documentos e Imagens na NAS**, como faz o OneDrive. Em Definições, «Guardar na NAS» move o conteúdo da pasta para dentro da pasta da NAS (`Ambiente de trabalho`, `Documentos`, `Imagens`) e o Windows passa a usá-la de lá (`SHSetKnownFolderPath`). O Explorador, o «Guardar como» e os programas continuam a encontrá-la no mesmo sítio, e os ficheiros são enviados e podem ser libertados como os outros. Se a pasta estiver no OneDrive, os ficheiros são copiados de lá (e saem do OneDrive). «Deixar de guardar na NAS» devolve uma pasta vazia no sítio habitual, e os ficheiros ficam na NAS. O `nasyncloud unregister` devolve-as antes de remover o registo. Não existe no macOS: montar o NFS por cima da Secretária deixaria o Finder pendurado se o serviço morresse.

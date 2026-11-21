@@ -237,8 +237,11 @@ details.card[open]>summary{margin-bottom:16px}
 .kf-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .kf-name b{font-size:14px}
 .kf-path{font-family:var(--mono);font-size:12px;color:var(--faint);overflow-wrap:anywhere}
-.kf-row .btn{flex:none}
-@media (max-width:620px){.kf-row{flex-wrap:wrap}.kf-row .btn{margin-left:auto}}
+.kf-btns{flex:none;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.kf-warn{font-size:12.5px;line-height:1.45;color:#fecaca}
+.kf-place{margin:14px 0 4px}
+.s-refused{color:#fecaca;border-color:rgba(248,113,113,.4);background:rgba(239,68,68,.12)}
+@media (max-width:620px){.kf-row{flex-wrap:wrap}.kf-btns{margin-left:auto}}
 
 /* toasts, overlay */
 #toasts{position:fixed;right:22px;bottom:22px;display:flex;flex-direction:column;gap:10px;z-index:20;max-width:min(420px,calc(100vw - 44px))}
@@ -376,6 +379,7 @@ details.card[open]>summary{margin-bottom:16px}
         <div class="card glass span2 only-win" id="kf-card">
           <div class="card-head" data-icon="cloud">Ambiente de trabalho, Documentos e Imagens na NAS</div>
           <p class="muted small">Como no OneDrive: o que está na pasta passa para a pasta da NAS e é enviado, e o Windows passa a ir buscá-la lá. Continua a aparecer no mesmo sítio (Explorador, «Guardar como», atalhos), mas fica guardada na NAS e podes libertar espaço como em qualquer outro ficheiro.</p>
+          <label class="field kf-place" id="kf-place-row" hidden><span>Pasta da NAS onde ficam</span><select id="kf-place"></select><small id="kf-place-hint"></small></label>
           <div class="kf-list" id="kf-list"></div>
           <small class="muted" id="kf-note"></small>
         </div>
@@ -941,6 +945,16 @@ $('#cfg-form').addEventListener('input', ev => { if (ev.target.id !== 'autostart
 // ---------------------------------------------------------------- known folders (Windows)
 
 let kfBusy = false;
+let kfData = null;
+// The folder of the NAS chosen for them ('' is the top; null: still to choose).
+let kfPlace = null;
+
+const kfPlaceName = p => p === '' ? 'No cimo da pasta da NAS' : p;
+const kfTarget = (place, f) => [kfData.root, ...place.split('/').filter(Boolean), f.name].join('\\');
+
+$('#kf-place').addEventListener('change', ev => {
+  kfPlace = ev.target.value.startsWith('p:') ? ev.target.value.slice(2) : null;
+});
 
 async function loadFolders() {
   if (!S || S.platform !== 'windows' || kfBusy) return;
@@ -948,38 +962,80 @@ async function loadFolders() {
   if (S.phase !== 'running') {
     list.replaceChildren(h('p', { class: 'muted small' }, 'Disponível quando estiver ligado à NAS.'));
     $('#kf-note').textContent = '';
+    $('#kf-place-row').hidden = true;
     return;
   }
   let r;
   try { r = await api('/api/folders'); } catch (e) { report(e); return; }
+  kfData = r;
+  if (kfPlace == null || !r.places.includes(kfPlace)) kfPlace = r.place;
+  // Nothing to choose when the top of the NAS folder is the only place.
+  const top = r.places.includes('');
+  $('#kf-place-row').hidden = top && r.places.length === 1;
+  const sel = $('#kf-place');
+  sel.replaceChildren(
+    ...(kfPlace == null ? [h('option', { value: '', disabled: true }, r.places.length ? 'Escolhe uma pasta…' : 'Nenhuma pasta disponível')] : []),
+    ...r.places.map(p => h('option', { value: 'p:' + p }, kfPlaceName(p))));
+  sel.value = kfPlace == null ? '' : 'p:' + kfPlace;
+  $('#kf-place-hint').textContent = top
+    ? 'Podem ficar no cimo da pasta da NAS ou dentro de uma das pastas dela.'
+    : r.places.length
+      ? 'A tua NAS não deixa criar pastas no cimo. É o que acontece quando o endereço WebDAV é o da NAS inteira: aí só existem as pastas partilhadas. Escolhe a pasta onde estas ficam.'
+      : 'A tua NAS não deixa criar pastas no cimo, e ainda não tem nenhuma pasta onde as pôr. Cria uma pasta partilhada na NAS.';
   list.replaceChildren(...r.folders.map(f => h('div', { class: 'kf-row' },
     h('div', { class: 'kf-name' },
       h('b', null, f.name),
-      h('span', { class: 'kf-path' }, f.path)),
-    h('span', { class: 'chip ' + (f.on_nas ? 's-cached' : 's-local') }, icon(f.on_nas ? 'cloud' : 'local'), f.on_nas ? 'Na NAS' : 'Só neste computador'),
-    h('button', { type: 'button', class: 'btn sm' + (f.on_nas ? '' : ' primary'), onclick: () => toggleFolder(f) }, f.on_nas ? 'Deixar de guardar na NAS' : 'Guardar na NAS'))));
+      h('span', { class: 'kf-path' }, f.path),
+      f.refused && h('span', { class: 'kf-warn' }, 'A NAS não deixa criar esta pasta aqui, por isso nada do que lá está foi enviado. Escolhe em cima uma pasta da NAS e carrega em «Mover para lá».')),
+    h('span', { class: 'chip ' + (f.refused ? 's-refused' : f.on_nas ? 's-cached' : 's-local') }, icon(f.refused ? 'alert' : f.on_nas ? 'cloud' : 'local'), f.refused ? 'Não enviada' : f.on_nas ? 'Na NAS' : 'Só neste computador'),
+    h('div', { class: 'kf-btns' },
+      f.refused && h('button', { type: 'button', class: 'btn sm primary', onclick: () => moveFolder(f) }, 'Mover para lá'),
+      h('button', { type: 'button', class: 'btn sm' + (f.on_nas ? '' : ' primary'), onclick: () => (f.on_nas ? restoreFolder(f) : moveFolder(f)) }, f.refused ? 'Voltar ao sítio habitual' : f.on_nas ? 'Deixar de guardar na NAS' : 'Guardar na NAS')))));
   $('#kf-note').textContent = r.folders.some(f => f.on_nas)
     ? 'Antes de mudares a pasta da NAS nas definições, deixa de guardar estas pastas lá.'
     : '';
 }
 
-async function toggleFolder(f) {
-  const on = !f.on_nas;
-  const msg = on
-    ? `Guardar «${f.name}» na NAS?\n\nTudo o que está em ${f.path} passa para ${f.nas_path} e começa a ser enviado. A partir daí o Windows usa essa pasta como «${f.name}».\n\nSe esta pasta estiver no OneDrive, os ficheiros saem de lá. Se a NAS já tiver «${f.name}» (de outro computador), as duas juntam-se.`
-    : `Deixar de guardar «${f.name}» na NAS?\n\nO Windows volta a usar a pasta habitual, que fica vazia. Os ficheiros continuam na NAS, em ${f.path}: copia de lá o que quiseres ter fora dela.`;
-  if (!confirm(msg)) return;
+async function kfRun(f, on, place, done) {
   kfBusy = true;
   $$('#kf-list button').forEach(b => { b.disabled = true; });
+  $('#kf-place').disabled = true;
   toast(on ? `A mover «${f.name}» para a NAS…` : `A devolver «${f.name}»…`);
-  try {
-    const r = await api('/api/folders', { key: f.key, on });
-    if (!on) toast(`«${f.name}» voltou ao sítio habitual. Os ficheiros continuam na NAS.`, 'ok');
+  try { done(await api('/api/folders', { key: f.key, on, place })); } catch (e) { report(e); }
+  kfBusy = false;
+  $('#kf-place').disabled = false;
+  loadFolders();
+}
+
+// «Guardar na NAS», and «Mover para lá» for a folder the NAS refused where it is.
+function moveFolder(f) {
+  if (kfPlace == null) {
+    toast(`Escolhe primeiro a pasta da NAS onde «${f.name}» fica.`, 'err');
+    $('#kf-place').focus();
+    return;
+  }
+  const to = kfTarget(kfPlace, f);
+  const msg = f.on_nas
+    ? `Mover «${f.name}» para ${to}?\n\nTudo o que está em ${f.path} passa para lá e começa a ser enviado. O Windows passa a usar essa pasta como «${f.name}».`
+    : `Guardar «${f.name}» na NAS?\n\nTudo o que está em ${f.path} passa para ${to} e começa a ser enviado. A partir daí o Windows usa essa pasta como «${f.name}».\n\nSe esta pasta estiver no OneDrive, os ficheiros saem de lá. Se a NAS já tiver «${f.name}» (de outro computador), as duas juntam-se.`;
+  if (!confirm(msg)) return;
+  kfRun(f, true, kfPlace, r => {
+    if (r.refused) toast(`A NAS não deixa criar «${f.name}» aí, e nada foi movido. Escolhe outra pasta da NAS e tenta outra vez.`, 'err');
     else if (r.left && r.left.length) toast(`«${f.name}» está na NAS, mas ${plural(r.left.length, 'item ficou', 'itens ficaram')} em ${r.from}: ${r.left.slice(0, 3).join('; ')}`, 'err');
     else toast(`«${f.name}» está na NAS (${plural(r.moved, 'item movido', 'itens movidos')}). O envio continua em segundo plano.`, 'ok');
-  } catch (e) { report(e); }
-  kfBusy = false;
-  loadFolders();
+  });
+}
+
+function restoreFolder(f) {
+  const msg = f.refused
+    ? `Devolver «${f.name}» ao sítio habitual?\n\nA NAS nunca chegou a receber esta pasta, por isso os ficheiros voltam com ela para o sítio habitual do Windows.`
+    : `Deixar de guardar «${f.name}» na NAS?\n\nO Windows volta a usar a pasta habitual, que fica vazia. Os ficheiros continuam na NAS, em ${f.path}: copia de lá o que quiseres ter fora dela.`;
+  if (!confirm(msg)) return;
+  kfRun(f, false, '', r => {
+    if (!r.refused) toast(`«${f.name}» voltou ao sítio habitual. Os ficheiros continuam na NAS.`, 'ok');
+    else if (r.left && r.left.length) toast(`«${f.name}» voltou ao sítio habitual, mas ${plural(r.left.length, 'item ficou', 'itens ficaram')} em ${r.from}: ${r.left.slice(0, 3).join('; ')}`, 'err');
+    else toast(`«${f.name}» voltou ao sítio habitual, com os ficheiros (${plural(r.moved, 'item', 'itens')}).`, 'ok');
+  });
 }
 
 // Starting with the computer belongs to the desktop app (not to the settings
