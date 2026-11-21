@@ -1,6 +1,6 @@
 # Changelog
 
-## Por lançar
+## 1.5.3 — 2026-11-21
 
 O motor do Windows passou a correr num Windows a sério antes de sair: um teste de ponta a ponta (`tests/e2e_windows.rs`) no GitHub Actions, em cada alteração e antes de cada versão. Da primeira vez que correu apanhou quatro erros, todos corrigidos aqui:
 

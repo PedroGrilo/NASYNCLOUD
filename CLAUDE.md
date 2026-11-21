@@ -16,13 +16,13 @@ A NAS alvo é uma **UGREEN NASync DH2300** (UGOS). Não tem Docker oficial, por 
 - Idioma no código: código, comentários, mensagens de log e da CLI em **inglês**. Interface (`src/ui/index.html`) e documentação em **pt-PT** ("ficheiro", "pasta", "descarregar", "utilizador", «aspas»).
 - Estilo da interface: vidro escuro (glassmorphism), acentos índigo e âmbar, tipografia limpa, grelha responsiva. Sem frameworks nem passo de build.
 
-## Estado atual (v1.5.2 e o que está «Por lançar», 2026-11-21)
+## Estado atual (v1.5.3, 2026-11-21)
 
 | Parte | Estado |
 |---|---|
 | Linux (FUSE) | Completo e testado: 28 testes (`cargo test`) + 64 verificações num mount real (`tests/e2e.sh`) |
 | macOS (NFS local) | Completo e testado no Mac do Pedro (macOS 27), sem macFUSE: `cargo test` + 63 verificações num mount real (`tests/e2e.sh`; 1 saltada: `st_blocks`). Testados à mão: cópia pelo Finder, `ditto`/`cp -p` com xattrs, ejetar, recuperação depois de `kill -9` |
-| Windows (Cloud Files) | Testado de ponta a ponta no GitHub Actions (`windows-latest`, Windows Server 2025 build 26100, com o Explorador a correr): `tests/e2e_windows.rs`, 144 verificações com o serviço a sério contra o `fake_nas`, em cada push para `main`, em cada PR e antes de cada Release (`ci.yml`, `release.yml`). Cobre o que a 1.5.0, a 1.5.1 e a 1.5.2 lançaram sem nunca ter corrido (o Ambiente de trabalho na NAS com o cimo fechado, handles normais em vez de oplocks). Na primeira vez que correu apanhou quatro erros do motor, corrigidos em «Por lançar» (ver CHANGELOG e as armadilhas «Windows, pastas por abrir», «Windows, acrescentar» e «Windows, oplocks»). Num Windows de cliente (10/11) só corre à mão, no PC do Pedro; o 0x800700AA da 1.5.1 não se reproduz no runner |
+| Windows (Cloud Files) | Testado de ponta a ponta no GitHub Actions (`windows-latest`, Windows Server 2025 build 26100, com o Explorador a correr): `tests/e2e_windows.rs`, 144 verificações com o serviço a sério contra o `fake_nas`, em cada push para `main`, em cada PR e antes de cada Release (`ci.yml`, `release.yml`). Cobre o que a 1.5.0, a 1.5.1 e a 1.5.2 lançaram sem nunca ter corrido (o Ambiente de trabalho na NAS com o cimo fechado, handles normais em vez de oplocks). Na primeira vez que correu apanhou quatro erros do motor, corrigidos na 1.5.3 (ver CHANGELOG e as armadilhas «Windows, pastas por abrir», «Windows, acrescentar» e «Windows, oplocks»). Num Windows de cliente (10/11) só corre à mão, no PC do Pedro; o 0x800700AA da 1.5.1 não se reproduz no runner |
 | Interface web | Testada pela API no e2e e vista no browser (desktop e telemóvel); capturas atuais em `docs/screenshots/` (`panel.png`, `files.png`), feitas com uma NAS de demonstração (`fake_nas`) e o browser do Claude |
 | WebDAV da UGOS | **Nunca testado contra o servidor real.** Testado contra rclone (Go x/net/webdav) e `dav-server` |
 
