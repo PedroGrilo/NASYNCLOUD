@@ -9,11 +9,16 @@
 //!
 //! Everything lives in `target/tmp/e2e-windows`; the NAS listens on 5025 and
 //! 5026, the interface on 18750 and 18751 (not the ports of `tests/e2e.sh`).
+//! The test itself plays the other programs: it reads and writes in the sync
+//! folder, and holds files and folders open while the service works on them.
 //!
 //! The part that moves the Desktop onto the NAS (`SHSetKnownFolderPath`)
-//! changes the folders of the user running the test, so it only runs with
-//! `NASYNCLOUD_E2E_KNOWN_FOLDERS=1`: set by the workflow, on a machine that
-//! is thrown away afterwards. Never set it on a computer someone uses.
+//! changes the folders of the user running the test, and leaves what was on
+//! the Desktop in a second sync folder next to it (`nasyncloud-e2e-mnt-b`).
+//! So it only runs with `NASYNCLOUD_E2E_KNOWN_FOLDERS=1`: set by the
+//! workflows, on a machine that is thrown away afterwards. Never set it on a
+//! computer someone uses. On GitHub Actions the test fails without it, so
+//! that this part is never skipped unnoticed.
 #![cfg(windows)]
 
 use std::fs;

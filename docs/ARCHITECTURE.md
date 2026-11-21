@@ -167,7 +167,7 @@ Primeira parte, uma NAS normal (portas 5025 e 18750):
 - ficheiros e pastas criados cá são enviados, criados na NAS e adotados (placeholder sincronizado, `cached` em `/api/browse`), sem ficarem em `info.errors`;
 - alterar ficheiros da NAS: acrescentar (com um handle que só acrescenta, num ficheiro só online e num já descarregado), escrever no início, substituir o conteúdo;
 - o mesmo que enviar e adotar com o item aberto por outro processo (o próprio teste): um ficheiro aberto com partilha total, aberto sem deixar escrever, com um bloqueio de bytes e sob um oplock exclusivo que o outro programa larga quando lho pedem; uma pasta vigiada como o Explorador faz (`ReadDirectoryChangesW`) e uma aberta sem deixar escrever;
-- alterações feitas na NAS por outros (ficheiro novo, alterado, apagado), «Libertar espaço» e «Manter sempre neste dispositivo», renomear, mover e apagar;
+- alterações feitas na NAS por outros (ficheiro ou pasta novos, ficheiro alterado, ficheiro ou pasta apagados), «Libertar espaço» e «Manter sempre neste dispositivo» (também numa pasta que ninguém abriu, com sub-pastas), renomear, mover e apagar;
 - parar e voltar a arrancar: nada é enviado outra vez, não há cópias de conflito; `nasyncloud unregister`.
 
 Segunda parte, uma NAS com o cimo fechado como o da UGOS (`fake_nas --closed-top`, portas 5026 e 18751; só com `NASYNCLOUD_E2E_KNOWN_FOLDERS=1`, porque move o Ambiente de trabalho de quem corre o teste):
