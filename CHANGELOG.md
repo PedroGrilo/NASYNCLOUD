@@ -1,5 +1,19 @@
 # Changelog
 
+## Por lançar
+
+O motor do Windows passou a correr num Windows a sério antes de sair: um teste de ponta a ponta (`tests/e2e_windows.rs`) no GitHub Actions, em cada alteração e antes de cada versão. Da primeira vez que correu apanhou quatro erros, todos corrigidos aqui:
+
+- **Windows: a interface mostra as pastas que ainda ninguém abriu.** Em «Ficheiros», uma pasta que nunca tinha sido aberta no Explorador aparecia vazia, e em Definições a «Pasta da NAS onde ficam» podia não ter as pastas da NAS para escolher. O Windows só pede o conteúdo de uma pasta quando é outro programa a abri-la; agora o NASYNCLOUD vai buscá-lo ele próprio quando precisa. Pelo mesmo motivo, «Manter sempre neste dispositivo» numa pasta passa a descarregar também as sub-pastas que nunca foram abertas.
+- **Windows: uma pasta da NAS que recebeu o Ambiente de trabalho (ou os Documentos, ou as Imagens) volta a abrir-se bem.** Se essa pasta nunca tinha sido aberta, a primeira listagem falhava («could not populate … 0x800700B7») e repetia a falha de cada vez que alguém a abria, porque a pasta nova já lá estava.
+- **Windows: o que se acrescenta ao fim de um ficheiro é sempre enviado.** Alguns programas (escritos em Go ou em Rust, por exemplo) acrescentam dados de uma forma que o Windows não assinala como alteração: o ficheiro continuava «sincronizado» e o acrescento nunca chegava à NAS. Agora o tamanho também conta.
+- **Windows: um ficheiro alterado na NAS volta a atualizar-se no computador.** A troca do conteúdo falhava sempre com «handle inválido» (0x80070006), e ficava cá a versão antiga.
+
+Também:
+
+- O `fake_nas` (a NAS de testes) ganhou `--closed-top`, que imita o cimo da UGOS: 405 a quem tenta criar, mudar ou apagar lá alguma coisa.
+- Com `nasyncloud -v`, o registo passa a dizer que ficheiros são descarregados e que pastas são abertas (Windows).
+
 ## 1.5.2 — 2026-11-21
 
 - **Windows: o que está no Ambiente de trabalho já não fica por enviar com «O recurso pedido está a ser utilizado. (0x800700AA)».** O motor abria ficheiros e pastas pedindo um «oplock» ao Windows, que o recusa enquanto outro programa tiver o item aberto, e o Explorador tem sempre aberto o Ambiente de trabalho e o que lá está. Agora usa handles normais para ver o estado de um item, para adotar uma pasta, para marcar um ficheiro como enviado e para «Manter sempre neste dispositivo» e «Libertar espaço». Só a troca do conteúdo de um ficheiro que mudou na NAS continua a precisar do ficheiro livre, e volta a tentar na volta seguinte.

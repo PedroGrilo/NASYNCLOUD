@@ -383,17 +383,17 @@ fn hold_deny_write(path: &Path) -> Result<Held, String> {
     Ok(Box::new(open_as(path, GENERIC_READ, 1, 0)?))
 }
 
-/// A program that locked a range of bytes far beyond the end (as Office
-/// does). Windows grants no oplock on a file with byte-range locks:
-/// `CfOpenFileWithOplock` fails with 0x8007012C, while the content can be read.
+/// A program that holds a shared lock on the first byte of the file (others
+/// can read it, nobody can write it). Windows grants no oplock on a file
+/// with a byte-range lock in it: `CfOpenFileWithOplock` fails with
+/// 0x8007012C, while the content can still be read and sent.
 fn hold_byte_lock(path: &Path) -> Result<Held, String> {
-    use windows_sys::Win32::Storage::FileSystem::{LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY};
+    use windows_sys::Win32::Storage::FileSystem::{LockFileEx, LOCKFILE_FAIL_IMMEDIATELY};
     let file = open_as(path, GENERIC_READ | GENERIC_WRITE, SHARE_ALL, 0)?;
-    // SAFETY: a synchronous handle; the OVERLAPPED only carries the offset (1 TiB) and outlives the call.
+    // SAFETY: a synchronous handle; the OVERLAPPED only carries the offset (0) and outlives the call.
     let locked = unsafe {
         let mut at: windows_sys::Win32::System::IO::OVERLAPPED = std::mem::zeroed();
-        at.Anonymous.Anonymous.OffsetHigh = 0x100;
-        LockFileEx(file.as_raw_handle(), LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &mut at)
+        LockFileEx(file.as_raw_handle(), LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &mut at)
     };
     expect(locked != 0, || format!("LockFileEx on {} failed: {}", path.display(), std::io::Error::last_os_error()))?;
     Ok(Box::new(file))
@@ -528,6 +528,10 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     }
     fs::write(nas_dir.join("Docs").join("sub").join("nota.txt"), "nota\n").map_err(|e| e.to_string())?;
     fs::write(nas_dir.join("Media").join("filme.bin"), &film).map_err(|e| e.to_string())?;
+    // Never opened by the test: only pinned, through the interface.
+    fs::create_dir_all(nas_dir.join("Fixar").join("dentro")).map_err(|e| e.to_string())?;
+    fs::write(nas_dir.join("Fixar").join("a.txt"), "para ter sempre aqui\n").map_err(|e| e.to_string())?;
+    fs::write(nas_dir.join("Fixar").join("dentro").join("b.txt"), "numa pasta que ninguém abriu\n").map_err(|e| e.to_string())?;
     let nas = Nas::start(nas_dir, 5025, false);
 
     println!("== start (an ordinary NAS)");
@@ -553,11 +557,11 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
         Ok(names)
     };
     println!("       (the sync folder before anything lists it: {})", flags(&svc.root));
-    c.check("the interface lists the top before anyone opened the folder", listed("").and_then(|l| expect(l == ["Docs", "Media"], || format!("{l:?}"))));
+    c.check("the interface lists the top before anyone opened the folder", listed("").and_then(|l| expect(l == ["Docs", "Fixar", "Media"], || format!("{l:?}"))));
     println!("       (the sync folder now: {}; Docs: {})", flags(&svc.root), flags(&svc.path("Docs")));
     c.check("...and a folder nobody opened yet", listed("Docs/sub").and_then(|l| expect(l == ["nota.txt"], || format!("{l:?}"))));
     let top = names(&svc.root);
-    c.check("top-level listing", expect(top == ["Docs", "Media"], || format!("{top:?}")));
+    c.check("top-level listing", expect(top == ["Docs", "Fixar", "Media"], || format!("{top:?}")));
     c.is("names with accents and spaces", svc.path("Docs/relatório final (v2).txt").is_file());
     let len = fs::metadata(svc.path("Media/filme.bin")).map(|m| m.len()).unwrap_or(0);
     c.check("size without download", expect(len == film.len() as u64, || format!("{len} byte(s)")));
@@ -615,7 +619,7 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     println!("== while other programs have them open");
     held_file(c, &svc, &nas, "Docs/aberto.txt", "open in a viewer (sharing everything)", hold_shared);
     held_file(c, &svc, &nas, "Docs/so-leitura.txt", "open in a program that denies writing", hold_deny_write);
-    held_file(c, &svc, &nas, "Docs/trancado.txt", "with a byte-range lock (no oplock possible)", hold_byte_lock);
+    held_file(c, &svc, &nas, "Docs/trancado.txt", "with a byte-range lock in it", hold_byte_lock);
     held_file(c, &svc, &nas, "Docs/com-oplock.txt", "under another program's exclusive oplock", hold_oplock);
     held_folder(c, &svc, &nas, "Aberta", "shown by Explorer (watched, sharing everything)", hold_watch);
     held_folder(c, &svc, &nas, "Docs/Reservada", "open in a program that denies writing", hold_deny_write);
@@ -645,6 +649,10 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     c.check("...the file is downloaded again", wait_for(40, || svc.api.state_is("Media/filme.bin", "cached")));
     c.is("...with the same content", fs::read(svc.path("Media/filme.bin")).is_ok_and(|d| d == film));
     c.check("...and can be let go of", svc.api.post("/api/pin", json!({ "path": "Media", "on": false })).map(|_| ()));
+    c.check("always keep a folder nobody opened", svc.api.post("/api/pin", json!({ "path": "Fixar", "on": true })).map(|_| ()));
+    c.check("...what is in it is downloaded", wait_for(40, || svc.api.state_is("Fixar/a.txt", "cached")));
+    c.check("...and what is in its folders too", wait_for(40, || svc.api.state_is("Fixar/dentro/b.txt", "cached")));
+    c.is("...with the content of the NAS", fs::read(svc.path("Fixar/dentro/b.txt")).is_ok_and(|d| d == "numa pasta que ninguém abriu\n".as_bytes()));
 
     println!("== rename and delete");
     let gone = |rel: &str| expect(!nas.path(rel).exists(), || format!("{rel} is still on the NAS"));
