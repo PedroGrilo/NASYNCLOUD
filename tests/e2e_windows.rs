@@ -805,12 +805,26 @@ fn closed_top(dir: &Path, c: &mut Checks) -> Result<(), String> {
     synced(c, "a file saved to the Desktop afterwards", &svc, &nas, &format!("{there}/e2e-novo.txt"), Some(b"guardado no Ambiente de trabalho\n"));
     c.check("nothing left to send and no errors", wait_for(60, || svc.api.settled()));
 
+    // A loose file at the top, which this NAS refuses: it must not change
+    // how files are sent everywhere else (to a temporary name, then renamed).
+    fs::write(svc.path("solto.txt"), "no cimo\n").map_err(|e| e.to_string())?;
+    c.check("a file at the closed top is reported as not sent", wait_for(30, || {
+        let errors = svc.api.info()["errors"].to_string();
+        expect(errors.contains("solto.txt"), || errors)
+    }));
+    let atomic = nas.requests("MOVE /home/");
+    fs::write(svc.path("home/depois.txt"), "depois da recusa\n").map_err(|e| e.to_string())?;
+    synced(c, "a file sent after that refusal", &svc, &nas, "home/depois.txt", Some(b"depois da recusa\n"));
+    c.check("...still through a temporary name", expect(nas.requests("MOVE /home/") == atomic + 1, || tail(&nas.log, 6)));
+    c.check("the loose file can be taken away", fs::remove_file(svc.path("solto.txt")).map_err(|e| e.to_string()));
+    c.check("...and the error goes with it", wait_for(90, || svc.api.settled()));
+
     let report = svc.api.post("/api/folders", json!({ "key": "desktop", "on": false }))?;
     c.check("the Desktop goes back to its usual place", expect(report["refused"] == false && same_path(&desktop_path(), &original), || format!("{report} / {}", desktop_path().display())));
     c.check("...and its files stay on the NAS", nas.has(&format!("{there}/e2e-ficheiro.txt"), b"estava no Ambiente de trabalho\n"));
     let (cfg, log) = (svc.cfg.clone(), svc.log.clone());
     c.check("the service stops when asked to", svc.stop());
-    let failed: Vec<String> = fs::read_to_string(&log).unwrap_or_default().lines().filter(|l| l.contains("retrying in") || l.contains("could not populate") || l.contains("panicked")).map(str::to_string).collect();
+    let failed: Vec<String> = fs::read_to_string(&log).unwrap_or_default().lines().filter(|l| (l.contains("retrying in") && !l.contains("solto.txt")) || l.contains("could not populate") || l.contains("panicked")).map(str::to_string).collect();
     c.check("the service never failed at anything it tried", expect(failed.is_empty(), || failed.join("\n       ")));
     c.check("unregister: the folder stops being a sync folder", Service::unregister(&cfg).map(|_| ()));
     c.check("...with the Desktop still in its usual place", expect(same_path(&desktop_path(), &original), || desktop_path().display().to_string()));

@@ -1,5 +1,9 @@
 # Changelog
 
+## Por lançar
+
+- **Windows: um ficheiro recusado pela NAS já não muda a forma como os outros são enviados.** Com o endereço da NAS inteira, um ficheiro posto no cimo da pasta é recusado (405). O NASYNCLOUD concluía daí que a NAS não sabia renomear ficheiros e, até reiniciar, passava a enviar tudo diretamente para o nome final, sem o ficheiro temporário que protege de envios interrompidos. Agora só muda de método se o envio direto resultar.
+
 ## 1.5.3 — 2026-11-21
 
 O motor do Windows passou a correr num Windows a sério antes de sair: um teste de ponta a ponta (`tests/e2e_windows.rs`) no GitHub Actions, em cada alteração e antes de cada versão. Da primeira vez que correu apanhou quatro erros, todos corrigidos aqui:

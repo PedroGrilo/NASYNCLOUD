@@ -474,9 +474,13 @@ impl Engine {
                     if !matches!(e, RemoteError::Http(405 | 501, _) | RemoteError::Precondition(_) | RemoteError::Forbidden) {
                         return Err(e);
                     }
+                    // Only a server that takes the file in place has shown that
+                    // it is the temporary name or the rename it cannot do. One
+                    // that refuses this too (nothing can be created at the top
+                    // of UGOS) refuses the place, and says nothing about the rest.
+                    self.remote.upload(rel, source, size, mtime).await?;
                     log::warn!("the server cannot rename over an existing file ({e}); uploading in place from now on");
                     self.atomic_upload.store(false, Ordering::SeqCst);
-                    self.remote.upload(rel, source, size, mtime).await?;
                 }
             }
         } else {
