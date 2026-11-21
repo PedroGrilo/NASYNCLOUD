@@ -640,6 +640,14 @@ fn open_nas(dir: &Path, c: &mut Checks) -> Result<(), String> {
     fs::remove_file(nas.path("Docs/chegou-depois.txt")).map_err(|e| e.to_string())?;
     refresh("Docs")?;
     c.check("a file removed on the NAS goes away here", wait_for(30, || expect(!svc.path("Docs/chegou-depois.txt").exists(), || "still here".into())));
+    fs::create_dir_all(nas.path("Docs/pasta-nova")).and_then(|()| fs::write(nas.path("Docs/pasta-nova/x.txt"), "x\n")).map_err(|e| e.to_string())?;
+    refresh("Docs")?;
+    c.check("a folder added on the NAS shows up", wait_for(30, || expect(svc.path("Docs/pasta-nova").is_dir(), || names(&svc.path("Docs")).join(", "))));
+    let inside = names(&svc.path("Docs/pasta-nova"));
+    c.check("...with what is in it", expect(inside == ["x.txt"], || format!("{inside:?}")));
+    fs::remove_dir_all(nas.path("Docs/pasta-nova")).map_err(|e| e.to_string())?;
+    refresh("Docs")?;
+    c.check("a folder removed on the NAS goes away here", wait_for(30, || expect(!svc.path("Docs/pasta-nova").exists(), || "still here".into())));
 
     println!("== free up space / always keep on this device");
     let freed = svc.api.post("/api/free", json!({ "path": "Media" }));
