@@ -225,7 +225,7 @@ fn write_handle(path: &Path) -> std::io::Result<Placeholder> {
 }
 
 fn inspect(path: &Path, len: u64) -> Result<Local> {
-    let info = read_handle(path)?.info()?;
+    let info = Placeholder::open(path)?.info()?; // DEMO: the oplock open that 1.5.2 removed
     Ok(match info {
         Some(i) => {
             let base = from_blob(i.blob());
